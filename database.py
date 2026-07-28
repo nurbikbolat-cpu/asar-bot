@@ -114,5 +114,5 @@ def update_request_status(req_id, status):
     conn.close()
     if row is None:
         raise ValueError(f"Request #{req_id} not found")
-        return row[0], row[1], row[2], row[3]
+        return row[0], row[1], row[2], row[3
 
