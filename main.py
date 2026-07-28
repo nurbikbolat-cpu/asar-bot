@@ -5,7 +5,8 @@ import logging
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
     Message, CallbackQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -25,6 +26,7 @@ router = Router()
 class Form(StatesGroup):
     waiting_what   = State()
     waiting_where  = State()
+    waiting_geo    = State()
     waiting_when   = State()
     waiting_photo  = State()
 
@@ -53,6 +55,16 @@ def skip_photo_btn():
         [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
     ])
 
+def geo_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📍 Отправить мою геопозицию", request_location=True)],
+            [KeyboardButton(text="⏭ Пропустить геолокацию")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
 
 CHANNEL_INFO = {
     "chan_help":    "Живая опора",
@@ -64,28 +76,28 @@ CHANNEL_INFO = {
 SECTION_QUESTIONS = {
     "chan_help": (
         "🤝 <b>В чем нужна помощь или чем можешь выручить?</b> Опиши суть:",
-        "📍 <b>В каком районе или месте это актуально?</b>",
+        "📍 <b>В каком районе или месте это актуально?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
         "⏱ <b>Когда это нужно или когда удобно помочь?</b>",
     ),
     "chan_bazar": (
         "📦 <b>Что за товар, вещь или совместная закупка?</b> Опиши детально:",
-        "📍 <b>Где забирать или где актуально?</b>",
+        "📍 <b>Где забирать или где актуально?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
         "💰 <b>Какая цена, условия или сроки закупки?</b>",
     ),
     "chan_garage": (
         "🛠 <b>Какой инструмент, техника или оборудование нужно / предлагаешь?</b>",
-        "📍 <b>Где находится железо / куда доставить?</b>",
+        "📍 <b>Где находится железо / куда доставить?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
         "⏱ <b>На какой срок нужно или когда доступно?</b>",
     ),
     "chan_ostatki": (
         "♻️ <b>Что за материалы или излишки отдаёшь/ищешь?</b> Опиши:",
-        "📍 <b>Где территориально лежат остатки?</b>",
+        "📍 <b>Где территориально лежат остатки?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
         "⏱ <b>До какого времени актуально / когда вывоз?</b>",
     ),
 }
 
 
-# ─── /start и Юр. соглашение ────────────────────────────────____________________
+# ─── /start и Юр. соглашение ────────────────────────────────────────────────────
 
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
@@ -153,7 +165,7 @@ async def process_legal_acceptance(callback: CallbackQuery):
     )
 
 
-# ─── Пошаговые заявки (с защитой от неверного ввода) ───────────────────────────
+# ─── Пошаговые заявки (с защитой от неверного ввода и геопозицией) ───────────────
 
 @router.callback_query(F.data.startswith("chan_"))
 async def section_selected(callback: CallbackQuery, state: FSMContext):
@@ -197,10 +209,46 @@ async def step_where(message: Message, state: FSMContext):
         return
 
     await state.update_data(where=message.text)
+    await state.set_state(Form.waiting_geo)
+    await message.answer(
+        "📍 Хочешь прикрепить точную геолокацию к заявке? Нажми кнопку ниже или пропусти этот шаг:",
+        reply_markup=geo_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.message(Form.waiting_geo, F.location, F.chat.type == "private")
+async def step_geo_location(message: Message, state: FSMContext):
+    lat = message.location.latitude
+    lon = message.location.longitude
+    geo_text = f"📍 Геопозиция: (широта: {lat:.4f}, долгота: {lon:.4f}) [Открыть на карте](https://maps.google.com/?q={lat},{lon})"
+    
+    data = await state.get_data()
+    combined_where = f"{data.get('where', '')}\n{geo_text}"
+    await state.update_data(where=combined_where, latitude=lat, longitude=lon)
+    
     data = await state.get_data()
     q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    await message.answer(q_when, reply_markup=back_btn(), parse_mode="HTML")
+    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+    await message.answer("⏱ Укажи сроки или время текстом:", reply_markup=back_btn(), parse_mode="HTML")
+
+
+@router.message(Form.waiting_geo, F.text == "⏭ Пропустить геолокацию", F.chat.type == "private")
+async def step_geo_skip(message: Message, state: FSMContext):
+    data = await state.get_data()
+    q_when = SECTION_QUESTIONS[data["section_key"]][2]
+    await state.set_state(Form.waiting_when)
+    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+    await message.answer("⏱ Укажи сроки или время текстом:", reply_markup=back_btn(), parse_mode="HTML")
+
+
+@router.message(Form.waiting_geo, F.chat.type == "private")
+async def step_geo_invalid(message: Message):
+    await message.answer(
+        "⚠️ Пожалуйста, используй кнопку «📍 Отправить мою геопозицию» или «⏭ Пропустить геолокацию».",
+        reply_markup=geo_keyboard()
+    )
 
 
 @router.message(Form.waiting_when, F.chat.type == "private")
@@ -254,6 +302,8 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     where        = data.get("where", "—")
     when         = data.get("when", "—")
     photo_id     = data.get("photo_id")
+    latitude     = data.get("latitude")
+    longitude    = data.get("longitude")
 
     if user:
         user_id   = user.id
@@ -292,6 +342,12 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         await bot.send_photo(ADMIN_ID, photo=photo_id, caption=caption, reply_markup=admin_kb, parse_mode="HTML")
     else:
         await bot.send_message(ADMIN_ID, caption, reply_markup=admin_kb, parse_mode="HTML")
+
+    if latitude and longitude:
+        try:
+            await bot.send_location(ADMIN_ID, latitude=latitude, longitude=longitude)
+        except Exception:
+            pass
 
 
 # ─── Модерация заявок ──────────────────────────────────────────────────────────
