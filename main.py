@@ -293,7 +293,8 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
 
 @router.callback_query(F.data.startswith("mod_"))
 async def moderate_action(callback: CallbackQuery, bot: Bot):
-    parts       = callback.data.split("_")
+       await callback.answer("Заявка одобрена!")
+ parts       = callback.data.split("_")
     action      = parts[1]
     req_id      = int(parts[2])
     section_key = "_".join(parts[3:]) if len(parts) > 3 else "chan_help"
