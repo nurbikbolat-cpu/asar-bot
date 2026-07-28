@@ -444,7 +444,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     
-    print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией!")
+    print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией!"
     await dp.start_polling(bot)
 
 
