@@ -375,14 +375,15 @@ async def barsik(callback: CallbackQuery):
         full_name, username, bauyrsaklar, published, total = profile
         handle = f"@{username}" if username else "—"
         pending = total - published
-        text = (
-            f"🐱 <b>Профиль участника</b>\n\n"
-            f"👤 <b>{full_name}</b>  ({handle})\n\n"
-            f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} бауырсаков</code>\n"
-            f"✅ <b>Опубликовано заявок:</b> {published}\n"
-            f"📋 <b>Всего подано:</b> {total}  "
-            f"(на модерации: {pending})\n\n"
-            f"💡 <i>Бауырсаки — энергия сообщества. "
+                    text = (
+                f"🐱 <b>Профиль участника</b>\n\n"
+                f"👤 <b>{full_name}</b> ({handle})\n\n"
+                f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
+                f"✅ <b>Опубликовано заявок:</b> {published}\n"
+                f"📋 <b>Всего подано:</b> {total} (на модерации: {pending})\n\n"
+                f"💡 <i>Баурсаки — энергия сообщества. Помог или поделился ресурсом — получил баурсак. Воспользовался помощью — баланс списывается. Никаких халявщиков, только честный обмен!</i>"
+            )
+
             f"Помог или поделился ресурсом — получил бауырсак. "
             f"Воспользовался помощью — баланс списывается. "
             f"Никаких халявщиков, только честный обмен!</i>"
