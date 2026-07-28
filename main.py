@@ -302,7 +302,7 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         user_id, section_name, what, photo_id = update_request_status(req_id, "published")
         chan_username = CHANNELS.get(section_key, "@asar_hq")
 
-                try:
+                    try:
             if photo_id:
                 await bot.send_photo(
                     chan_username,
