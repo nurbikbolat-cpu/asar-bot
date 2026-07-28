@@ -218,8 +218,7 @@ async def step_photo(message: Message, state: FSMContext, bot: Bot):
 async def skip_photo(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
     await state.update_data(photo_id=None)
-    await finish_request(callback.message, state, bot,
-                         user=callback.from_user)
+    await finish_request(callback.message, state, bot, user=callback.from_user)
 
 
 # ─── Финал: сохранение и отправка модератору ───────────────────────────────────
@@ -235,21 +234,18 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     when         = data.get("when", "—")
     photo_id     = data.get("photo_id")
 
-    # Определяем user_id
     if user:
-        user_id       = user.id
-        full_name     = user.full_name
-        username      = user.username
+        user_id   = user.id
+        full_name = user.full_name
+        username  = user.username
     else:
-        user_id       = message.chat.id
-        full_name     = message.chat.full_name or ""
-        username      = message.chat.username or ""
+        user_id   = message.chat.id
+        full_name = message.chat.full_name or ""
+        username  = message.chat.username or ""
 
     req_id = add_request(user_id, section_name, what, where, when, photo_id)
-
     chan_username = CHANNELS.get(section_key, "@asar_hq")
 
-    # Подтверждение пользователю
     await message.answer(
         "✅ <b>Заявка принята!</b>\n"
         "Модератор проверит её и опубликует в канале.",
@@ -257,7 +253,6 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         reply_markup=main_menu()
     )
 
-    # Кнопки модератора
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Одобрить",  callback_data=f"mod_yes_{req_id}_{section_key}"),
          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"mod_no_{req_id}_{section_key}")]
@@ -293,27 +288,30 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
 
 @router.callback_query(F.data.startswith("mod_"))
 async def moderate_action(callback: CallbackQuery, bot: Bot):
-       await callback.answer("Заявка одобрена!")
- parts       = callback.data.split("_")
+    await callback.answer("Обработка заявки...")
+    parts       = callback.data.split("_")
     action      = parts[1]
     req_id      = int(parts[2])
     section_key = "_".join(parts[3:]) if len(parts) > 3 else "chan_help"
-if action == "yes":
+
+    if action == "yes":
         user_id, section_name, what, photo_id = update_request_status(req_id, "published")
         chan_username = CHANNELS.get(section_key, "@asar_hq")
-        
+
         try:
             if photo_id:
                 await bot.send_photo(
-                    chan_username,
+                    chat_id=chan_username,
                     photo=photo_id,
                     caption=f"🤝 <b>{section_name}</b>\n\n{what}",
-                    else:
-                        await bot.send_message(
-                            chat_id=chan_username,
-                            text=f"🤝 <b>{section_name}</b>\n\n{what}",
-                            parse_mode="HTML"
-                        )           
+                    parse_mode="HTML"
+                )
+            else:
+                await bot.send_message(
+                    chat_id=chan_username,
+                    text=f"🤝 <b>{section_name}</b>\n\n{what}",
+                    parse_mode="HTML"
+                )           
             note = f"опубликована в {chan_username}"
         except Exception as e:
             note = f"не удалось отправить в канал: {e}"
@@ -335,8 +333,6 @@ if action == "yes":
             parse_mode="HTML"
         )
 
-    
-
 
 # ─── Назад в меню ──────────────────────────────────────────────────────────────
 
@@ -348,7 +344,6 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         reply_markup=main_menu(),
         parse_mode="HTML"
     )
-        
 
 
 # ─── Барсик / Профиль ──────────────────────────────────────────────────────────
@@ -367,18 +362,13 @@ async def barsik(callback: CallbackQuery):
         full_name, username, bauyrsaklar, published, total = profile
         handle = f"@{username}" if username else "—"
         pending = total - published
-                    text = (
-                f"🐱 <b>Профиль участника</b>\n\n"
-                f"👤 <b>{full_name}</b> ({handle})\n\n"
-                f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
-                f"✅ <b>Опубликовано заявок:</b> {published}\n"
-                f"📋 <b>Всего подано:</b> {total} (на модерации: {pending})\n\n"
-                f"💡 <i>Баурсаки — энергия сообщества. Помог или поделился ресурсом — получил баурсак. Воспользовался помощью — баланс списывается. Никаких халявщиков, только честный обмен!</i>"
-            )
-
-            f"Помог или поделился ресурсом — получил бауырсак. "
-            f"Воспользовался помощью — баланс списывается. "
-            f"Никаких халявщиков, только честный обмен!</i>"
+        text = (
+            f"🐱 <b>Профиль участника</b>\n\n"
+            f"👤 <b>{full_name}</b> ({handle})\n\n"
+            f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
+            f"✅ <b>Опубликовано заявок:</b> {published}\n"
+            f"📋 <b>Всего подано:</b> {total} (на модерации: {pending})\n\n"
+            f"💡 <i>Баурсаки — энергия сообщества. Помог или поделился ресурсом — получил баурсак. Воспользовался помощью — баланс списывается. Никаких халявщиков, только честный обмен!</i>"
         )
 
     await callback.message.edit_text(
@@ -421,6 +411,8 @@ async def fallback(message: Message, state: FSMContext):
             "👋 Привет! Нажмите /start, чтобы открыть меню.",
             reply_markup=main_menu()
         )
+
+
 # ─── Запуск ────────────────────────────────────────────────────────────────────
 
 async def handle_ping(request):
@@ -433,8 +425,7 @@ async def main():
     dp  = Dispatcher()
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Заглушка для Render, чтобы открыть порт
+
     app = web.Application()
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
@@ -442,12 +433,10 @@ async def main():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    
-    print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией!"
+
+    print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией!")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
