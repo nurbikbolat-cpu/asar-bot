@@ -104,12 +104,12 @@ def get_user_profile(user_id):
 
 
 def update_request_status(req_id, status):
-    """Обновляет статус и возвращает (user_id, section, what)."""
+    """Обновляет статус и возвращает (user_id, section, what, photo_id)."""
     conn = sqlite3.connect(DB)
     conn.execute("UPDATE requests SET status = ? WHERE id = ?", (status, req_id))
     conn.commit()
     row = conn.execute(
-        "SELECT user_id, section, what FROM requests WHERE id = ?", (req_id,)
+        "SELECT user_id, section, what, photo_id FROM requests WHERE id = ?", (req_id,)
     ).fetchone()
     conn.close()
     if row is None:
