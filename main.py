@@ -30,7 +30,7 @@ class Form(StatesGroup):
     waiting_photo  = State()
 
 
-# ─── Нижняя клавиатура (как на скриншоте) ───────────────────────────────────────
+# ─── Нижняя клавиатура ──────────────────────────────────────────────────────────
 
 def main_reply_menu():
     return ReplyKeyboardMarkup(
@@ -94,7 +94,7 @@ SECTION_QUESTIONS = {
 }
 
 
-# ─── /start и Юр. соглашение ────────────────────────────────____________________
+# ─── /start и Юр. соглашение ────────────────────────────────────────────────────
 
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
@@ -158,7 +158,7 @@ async def process_legal_acceptance(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ─── Обработка текстовых кнопок из нижнего меню ──────────────────────────────
+# ─── Обработка кнопок нижнего меню ──────────────────────────────────────────────
 
 @router.message(F.text == "🏢 Весь Штаб (Каналы)", F.chat.type == "private")
 async def btn_channels(message: Message):
@@ -311,9 +311,13 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     req_id = add_request(user_id, section_name, what, where, when, photo_id)
     chan_username = CHANNELS.get(section_key, "@asar_hq")
 
+    # Стилизованный блок цитирования для пользователя
     await message.answer(
-        "✅ <b>Заявка принята!</b>\n"
-        "Модератор проверит её и опубликует в канале.",
+        "✅ <b>Заявка принята!</b> Модератор скоро проверит её.\n\n"
+        f"<blockquote><b>📂 {section_name}</b>\n"
+        f"❓ <b>Что:</b> {what}\n"
+        f"📍 <b>Где:</b> {where}\n"
+        f"🕐 <b>Когда:</b> {when}</blockquote>",
         parse_mode="HTML",
         reply_markup=main_reply_menu()
     )
@@ -323,13 +327,14 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"mod_no_{req_id}_{section_key}")]
     ])
 
+    # Стилизованный блок цитирования для админа
     caption = (
-        f"🔔 <b>Новая заявка #{req_id}</b>\n\n"
-        f"📂 Раздел: <b>{section_name}</b>  →  {chan_username}\n"
-        f"👤 {full_name} (@{username})\n\n"
+        f"🔔 <b>Новая заявка #{req_id}</b>\n"
+        f"👤 {full_name} (@{username})  →  {chan_username}\n\n"
+        f"<blockquote>📂 <b>{section_name}</b>\n"
         f"❓ <b>Что:</b> {what}\n"
         f"📍 <b>Где:</b> {where}\n"
-        f"🕐 <b>Когда:</b> {when}"
+        f"🕐 <b>Когда:</b> {when}</blockquote>"
     )
 
     if photo_id:
@@ -352,18 +357,23 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         user_id, section_name, what, photo_id = update_request_status(req_id, "published")
         chan_username = CHANNELS.get(section_key, "@asar_hq")
 
+        channel_text = (
+            f"🤝 <b>{section_name}</b>\n\n"
+            f"<blockquote>{what}</blockquote>"
+        )
+
         try:
             if photo_id:
                 await bot.send_photo(
                     chat_id=chan_username,
                     photo=photo_id,
-                    caption=f"🤝 <b>{section_name}</b>\n\n{what}",
+                    caption=channel_text,
                     parse_mode="HTML"
                 )
             else:
                 await bot.send_message(
                     chat_id=chan_username,
-                    text=f"🤝 <b>{section_name}</b>\n\n{what}",
+                    text=channel_text,
                     parse_mode="HTML"
                 )           
             note = f"опубликована в {chan_username}"
@@ -377,7 +387,7 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
 
         await bot.send_message(
             user_id,
-            f"🎉 Ваша заявка #{req_id} одобрена и опубликована!"
+            f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале!"
         )
 
     elif action == "no":
@@ -396,7 +406,7 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             pass
 
 
-# ─── Админские команды (/give и /take) ─────────────────────────────────────────
+# ─── Админские команды ──────────────────────────────────────────────────────────
 
 @router.message(Command("give"), F.from_user.id == ADMIN_ID)
 async def admin_give_currency(message: Message):
@@ -439,8 +449,6 @@ async def admin_take_currency(message: Message):
     except Exception:
         pass
 
-
-# ─── Возврат в главное меню через инлайн-кнопку отмены ─────────────────────────
 
 @router.callback_query(F.data == "menu_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
@@ -513,7 +521,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-    print("🚀 Бот АСАР запущен с нижней клавиатурой!")
+    print("🚀 Бот АСАР запущен с нижней клавиатурой и стильными цитатами!")
     await dp.start_polling(bot)
 
 
