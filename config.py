@@ -1,6 +1,13 @@
 import os
 
-BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
+# Ищем токен в любой из возможных переменных окружения
+BOT_TOKEN: str = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
+if not BOT_TOKEN:
+    raise EnvironmentError(
+        "BOT_TOKEN environment variable is not set. "
+        "Please add your Telegram Bot token as the BOT_TOKEN secret."
+    )
 
 _raw_admin = os.environ.get("ADMIN_ID", "")
 if not _raw_admin:
