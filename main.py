@@ -145,7 +145,7 @@ async def process_legal_acceptance(callback: CallbackQuery):
     )
 
 
-# ─── Пошаговые заявки ──────────────────────────────────────────────────────────
+# ─── Пошаговые заявки (с защитой от неверного ввода) ───────────────────────────
 
 @router.callback_query(F.data.startswith("chan_"))
 async def section_selected(callback: CallbackQuery, state: FSMContext):
@@ -165,6 +165,13 @@ async def section_selected(callback: CallbackQuery, state: FSMContext):
 
 @router.message(Form.waiting_what, F.chat.type == "private")
 async def step_what(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("⚠️ Братишка, нужно отправить текстовое описание! Попробуй еще раз или нажми кнопку отмена.", reply_markup=back_btn())
+        return
+    if message.text.startswith("/"):
+        await message.answer("⚠️ Сначала заполни текущий пункт или нажми кнопку «Отмена / Главное меню».", reply_markup=back_btn())
+        return
+
     await state.update_data(what=message.text)
     data = await state.get_data()
     q_where = SECTION_QUESTIONS[data["section_key"]][1]
@@ -174,6 +181,13 @@ async def step_what(message: Message, state: FSMContext):
 
 @router.message(Form.waiting_where, F.chat.type == "private")
 async def step_where(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("⚠️ Напиши текстом, где это актуально или где забирать.", reply_markup=back_btn())
+        return
+    if message.text.startswith("/"):
+        await message.answer("⚠️ Заверши заполнение заявки или отмени действие кнопкой ниже.", reply_markup=back_btn())
+        return
+
     await state.update_data(where=message.text)
     data = await state.get_data()
     q_when = SECTION_QUESTIONS[data["section_key"]][2]
@@ -183,6 +197,13 @@ async def step_where(message: Message, state: FSMContext):
 
 @router.message(Form.waiting_when, F.chat.type == "private")
 async def step_when(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("⚠️ Укажи сроки или время текстом.", reply_markup=back_btn())
+        return
+    if message.text.startswith("/"):
+        await message.answer("⚠️ Укажи время или нажми кнопку отмены.", reply_markup=back_btn())
+        return
+
     await state.update_data(when=message.text)
     await state.set_state(Form.waiting_photo)
     await message.answer(
@@ -197,6 +218,15 @@ async def step_photo(message: Message, state: FSMContext, bot: Bot):
     photo_id = message.photo[-1].file_id
     await state.update_data(photo_id=photo_id)
     await finish_request(message, state, bot)
+
+
+@router.message(Form.waiting_photo, ~F.photo, F.chat.type == "private")
+async def step_photo_invalid(message: Message):
+    await message.answer(
+        "⚠️ Отправь фото картинкой или нажми кнопку «Пропустить фото» / «Отмена».",
+        reply_markup=skip_photo_btn(),
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(StateFilter(Form.waiting_photo), F.data == "skip_photo")
