@@ -37,7 +37,9 @@ def main_menu():
          InlineKeyboardButton(text="📦 Общаг/Базар",  callback_data="chan_bazar")],
         [InlineKeyboardButton(text="🛠 Общий Гараж",  callback_data="chan_garage"),
          InlineKeyboardButton(text="♻️ Остатки",      callback_data="chan_ostatki")],
-        [InlineKeyboardButton(text="🐱 Барсик (Профиль)", callback_data="menu_barsik")]
+        [InlineKeyboardButton(text="🏢 Весь Штаб (Каналы)", url="https://t.me/asar_help")],
+        [InlineKeyboardButton(text="📜 О проекте / Правила", callback_data="menu_rules"),
+         InlineKeyboardButton(text="🐱 Барсик (Профиль)", callback_data="menu_barsik")]
     ])
 
 def back_btn():
@@ -83,7 +85,7 @@ SECTION_QUESTIONS = {
 }
 
 
-# ─── /start и Юр. соглашение ────────────────────────────────────────────────────
+# ─── /start и Юр. соглашение ────────────────────────────────____________________
 
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
@@ -137,10 +139,16 @@ async def cmd_start(message: Message, state: FSMContext):
 async def process_legal_acceptance(callback: CallbackQuery):
     set_accepted(callback.from_user.id)
     await callback.answer("Соглашение принято. Добро пожаловать!")
+    
+    accepted_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏢 Перейти в Штаб / Каналы", url="https://t.me/asar_help")],
+        [InlineKeyboardButton(text="🟢 Открыть меню бота", callback_data="menu_main")]
+    ])
+    
     await callback.message.edit_text(
         "🟢 <b>АСАР — Это когда мы вместе</b>\n\n"
-        "Выберите нужный раздел:",
-        reply_markup=main_menu(),
+        "Правила приняты! Залетай в наш Штаб, чтобы видеть все каналы, или открывай меню бота:",
+        reply_markup=accepted_kb,
         parse_mode="HTML"
     )
 
@@ -329,11 +337,19 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         )
 
     elif action == "no":
-        update_request_status(req_id, "rejected")
+        user_id, _, _, _ = update_request_status(req_id, "rejected")
         await callback.message.edit_caption(
             caption=f"❌ Заявка #{req_id} отклонена.",
             parse_mode="HTML"
         )
+
+        try:
+            await bot.send_message(
+                user_id,
+                f"❌ К сожалению, твоя заявка #{req_id} не прошла модерацию. Отредактируй её и подай заново через главное меню."
+            )
+        except Exception:
+            pass
 
 
 # ─── Админские команды для баурсаков (/give и /take) ───────────────────────────
@@ -344,7 +360,7 @@ async def admin_give_currency(message: Message):
     if len(parts) != 3:
         await message.answer("⚠️ Формат: <code>/give [user_id] [сумма]</code>", parse_mode="HTML")
         return
-    
+
     try:
         target_id = int(parts[1])
         amount = int(parts[2])
@@ -354,7 +370,7 @@ async def admin_give_currency(message: Message):
 
     update_balance(target_id, amount)
     await message.answer(f"✅ Начислено {amount} баурсаков пользователю <code>{target_id}</code>!", parse_mode="HTML")
-    
+
     try:
         await message.bot.send_message(target_id, f"🎉 Тебе зачислено <b>{amount} баурсаков</b> от администрации!", parse_mode="HTML")
     except Exception:
@@ -367,7 +383,7 @@ async def admin_take_currency(message: Message):
     if len(parts) != 3:
         await message.answer("⚠️ Формат: <code>/take [user_id] [сумма]</code>", parse_mode="HTML")
         return
-    
+
     try:
         target_id = int(parts[1])
         amount = int(parts[2])
@@ -377,14 +393,14 @@ async def admin_take_currency(message: Message):
 
     update_balance(target_id, -amount)
     await message.answer(f"✅ Списано {amount} баурсаков у пользователя <code>{target_id}</code>!", parse_mode="HTML")
-    
+
     try:
         await message.bot.send_message(target_id, f"⚠️ У тебя списано <b>{amount} баурсаков</b> администрацией.", parse_mode="HTML")
     except Exception:
         pass
 
 
-# ─── Навигация и Профиль ───────────────────────────────────────────────────────
+# ─── Навигация, Правила и Профиль ──────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
@@ -392,6 +408,17 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "🟢 <b>Главное меню АСАР:</b>",
         reply_markup=main_menu(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "menu_rules")
+async def menu_rules(callback: CallbackQuery):
+    await callback.message.edit_text(
+        DISCLAIMER_TEXT,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_main")]
+        ]),
         parse_mode="HTML"
     )
 
