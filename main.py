@@ -5,15 +5,17 @@ import logging
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
     Message, CallbackQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton,
-    ReplyKeyboardRemove
+    InlineKeyboardMarkup, InlineKeyboardButton
 )
-from aiogram.filters import CommandStart, StateFilter
+from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import BOT_TOKEN, ADMIN_ID, CHANNELS
-from database import init_db, save_user, add_request, update_request_status, get_user_profile, has_accepted, set_accepted
+from database import (
+    init_db, save_user, add_request, update_request_status,
+    get_user_profile, has_accepted, set_accepted, update_balance
+)
 
 router = Router()
 
@@ -57,7 +59,6 @@ CHANNEL_INFO = {
     "chan_ostatki": "Остатки",
 }
 
-# Вопросы для каждого раздела по шагам (what, where, when)
 SECTION_QUESTIONS = {
     "chan_help": (
         "🤝 <b>В чем нужна помощь или чем можешь выручить?</b> Опиши суть:",
@@ -82,7 +83,7 @@ SECTION_QUESTIONS = {
 }
 
 
-# ─── /start ────────────────────────────────────────────────────────────────────
+# ─── /start и Юр. соглашение ────────────────────────────────────────────────────
 
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
@@ -144,7 +145,7 @@ async def process_legal_acceptance(callback: CallbackQuery):
     )
 
 
-# ─── Выбор раздела ─────────────────────────────────────────────────────────────
+# ─── Пошаговые заявки ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("chan_"))
 async def section_selected(callback: CallbackQuery, state: FSMContext):
@@ -162,22 +163,14 @@ async def section_selected(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ─── Шаг 1: Что? ───────────────────────────────────────────────────────────────
-
 @router.message(Form.waiting_what, F.chat.type == "private")
 async def step_what(message: Message, state: FSMContext):
     await state.update_data(what=message.text)
     data = await state.get_data()
     q_where = SECTION_QUESTIONS[data["section_key"]][1]
     await state.set_state(Form.waiting_where)
-    await message.answer(
-        q_where,
-        reply_markup=back_btn(),
-        parse_mode="HTML"
-    )
+    await message.answer(q_where, reply_markup=back_btn(), parse_mode="HTML")
 
-
-# ─── Шаг 2: Где? ───────────────────────────────────────────────────────────────
 
 @router.message(Form.waiting_where, F.chat.type == "private")
 async def step_where(message: Message, state: FSMContext):
@@ -185,14 +178,8 @@ async def step_where(message: Message, state: FSMContext):
     data = await state.get_data()
     q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    await message.answer(
-        q_when,
-        reply_markup=back_btn(),
-        parse_mode="HTML"
-    )
+    await message.answer(q_when, reply_markup=back_btn(), parse_mode="HTML")
 
-
-# ─── Шаг 3: Когда? ─────────────────────────────────────────────────────────────
 
 @router.message(Form.waiting_when, F.chat.type == "private")
 async def step_when(message: Message, state: FSMContext):
@@ -204,8 +191,6 @@ async def step_when(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-
-# ─── Шаг 4: Фото ───────────────────────────────────────────────────────────────
 
 @router.message(Form.waiting_photo, F.photo, F.chat.type == "private")
 async def step_photo(message: Message, state: FSMContext, bot: Bot):
@@ -220,8 +205,6 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await state.update_data(photo_id=None)
     await finish_request(callback.message, state, bot, user=callback.from_user)
 
-
-# ─── Финал: сохранение и отправка модератору ───────────────────────────────────
 
 async def finish_request(message: Message, state: FSMContext, bot: Bot, user=None):
     data = await state.get_data()
@@ -268,23 +251,12 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     )
 
     if photo_id:
-        await bot.send_photo(
-            ADMIN_ID,
-            photo=photo_id,
-            caption=caption,
-            reply_markup=admin_kb,
-            parse_mode="HTML"
-        )
+        await bot.send_photo(ADMIN_ID, photo=photo_id, caption=caption, reply_markup=admin_kb, parse_mode="HTML")
     else:
-        await bot.send_message(
-            ADMIN_ID,
-            caption,
-            reply_markup=admin_kb,
-            parse_mode="HTML"
-        )
+        await bot.send_message(ADMIN_ID, caption, reply_markup=admin_kb, parse_mode="HTML")
 
 
-# ─── Кнопки модератора ─────────────────────────────────────────────────────────
+# ─── Модерация заявок ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("mod_"))
 async def moderate_action(callback: CallbackQuery, bot: Bot):
@@ -334,7 +306,55 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         )
 
 
-# ─── Назад в меню ──────────────────────────────────────────────────────────────
+# ─── Админские команды для баурсаков (/give и /take) ───────────────────────────
+
+@router.message(Command("give"), F.from_user.id == ADMIN_ID)
+async def admin_give_currency(message: Message):
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer("⚠️ Формат: <code>/give [user_id] [сумма]</code>", parse_mode="HTML")
+        return
+    
+    try:
+        target_id = int(parts[1])
+        amount = int(parts[2])
+    except ValueError:
+        await message.answer("⚠️ ID и сумма должны быть числами!")
+        return
+
+    update_balance(target_id, amount)
+    await message.answer(f"✅ Начислено {amount} баурсаков пользователю <code>{target_id}</code>!", parse_mode="HTML")
+    
+    try:
+        await message.bot.send_message(target_id, f"🎉 Тебе зачислено <b>{amount} баурсаков</b> от администрации!", parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@router.message(Command("take"), F.from_user.id == ADMIN_ID)
+async def admin_take_currency(message: Message):
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer("⚠️ Формат: <code>/take [user_id] [сумма]</code>", parse_mode="HTML")
+        return
+    
+    try:
+        target_id = int(parts[1])
+        amount = int(parts[2])
+    except ValueError:
+        await message.answer("⚠️ ID и сумма должны быть числами!")
+        return
+
+    update_balance(target_id, -amount)
+    await message.answer(f"✅ Списано {amount} баурсаков у пользователя <code>{target_id}</code>!", parse_mode="HTML")
+    
+    try:
+        await message.bot.send_message(target_id, f"⚠️ У тебя списано <b>{amount} баурсаков</b> администрацией.", parse_mode="HTML")
+    except Exception:
+        pass
+
+
+# ─── Навигация и Профиль ───────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
@@ -345,8 +365,6 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         parse_mode="HTML"
     )
 
-
-# ─── Барсик / Профиль ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu_barsik")
 async def barsik(callback: CallbackQuery):
@@ -380,7 +398,7 @@ async def barsik(callback: CallbackQuery):
     )
 
 
-# ─── Модерация групп и чатов (Антиспам / Казино / Реклама) ──────────────────────
+# ─── Антиспам и защита групп/каналов ──────────────────────────────────────────
 
 SPAM_KEYWORDS = [
     "http://", "https://", "t.me/", "@", "купить", "заработок",
@@ -391,21 +409,16 @@ SPAM_KEYWORDS = [
 async def group_antispam_and_block(message: Message, bot: Bot):
     if message.text and message.text.startswith("/"):
         return
-    
     if not message.text:
         return
 
     text_lower = message.text.lower()
-    is_spam = any(kw in text_lower for kw in SPAM_KEYWORDS)
-
-    if is_spam:
+    if any(kw in text_lower for kw in SPAM_KEYWORDS):
         try:
             await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
         except Exception as e:
             print(f"Не удалось удалить спам/рекламу в группе: {e}")
 
-
-# ─── Автомодерация каналов ─────────────────────────────────────────────────────
 
 @router.channel_post()
 async def moderate_channel_posts(message: Message, bot: Bot):
@@ -421,7 +434,7 @@ async def moderate_channel_posts(message: Message, bot: Bot):
             print(f"Не удалось удалить спам в канале: {e}")
 
 
-# ─── Fallback (только для лички) ───────────────────────────────────────────────
+# ─── Fallback и Запуск ─────────────────────────────────────────────────────────
 
 @router.message(F.chat.type == "private")
 async def fallback(message: Message, state: FSMContext):
@@ -433,10 +446,9 @@ async def fallback(message: Message, state: FSMContext):
         )
 
 
-# ─── Запуск ────────────────────────────────────────────────────────────────────
-
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
+
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -454,7 +466,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-    print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией и защитой чата!")
+    print("🚀 Бот АСАР запущен — баурсаки и админка активны!")
     await dp.start_polling(bot)
 
 
