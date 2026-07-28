@@ -107,7 +107,7 @@ def legal_kb():
     ])
 
 
-@router.message(CommandStart())
+@router.message(CommandStart(), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     save_user(
@@ -164,7 +164,7 @@ async def section_selected(callback: CallbackQuery, state: FSMContext):
 
 # ─── Шаг 1: Что? ───────────────────────────────────────────────────────────────
 
-@router.message(Form.waiting_what)
+@router.message(Form.waiting_what, F.chat.type == "private")
 async def step_what(message: Message, state: FSMContext):
     await state.update_data(what=message.text)
     data = await state.get_data()
@@ -179,7 +179,7 @@ async def step_what(message: Message, state: FSMContext):
 
 # ─── Шаг 2: Где? ───────────────────────────────────────────────────────────────
 
-@router.message(Form.waiting_where)
+@router.message(Form.waiting_where, F.chat.type == "private")
 async def step_where(message: Message, state: FSMContext):
     await state.update_data(where=message.text)
     data = await state.get_data()
@@ -194,7 +194,7 @@ async def step_where(message: Message, state: FSMContext):
 
 # ─── Шаг 3: Когда? ─────────────────────────────────────────────────────────────
 
-@router.message(Form.waiting_when)
+@router.message(Form.waiting_when, F.chat.type == "private")
 async def step_when(message: Message, state: FSMContext):
     await state.update_data(when=message.text)
     await state.set_state(Form.waiting_photo)
@@ -207,7 +207,7 @@ async def step_when(message: Message, state: FSMContext):
 
 # ─── Шаг 4: Фото ───────────────────────────────────────────────────────────────
 
-@router.message(Form.waiting_photo, F.photo)
+@router.message(Form.waiting_photo, F.photo, F.chat.type == "private")
 async def step_photo(message: Message, state: FSMContext, bot: Bot):
     photo_id = message.photo[-1].file_id
     await state.update_data(photo_id=photo_id)
@@ -380,12 +380,32 @@ async def barsik(callback: CallbackQuery):
     )
 
 
-# ─── Автомодерация каналов ─────────────────────────────────────────────────────
+# ─── Модерация групп и чатов (Антиспам / Казино / Реклама) ──────────────────────
 
 SPAM_KEYWORDS = [
-    "http://", "https://", "t.me/", "купить", "заработок",
-    "крипта", "casino", "казино", "реклама", "промокод",
+    "http://", "https://", "t.me/", "@", "купить", "заработок",
+    "крипта", "casino", "казино", "ставка", "инвестиции", "промокод", "заработай"
 ]
+
+@router.message(F.chat.type.in_({"group", "supergroup"}))
+async def group_antispam_and_block(message: Message, bot: Bot):
+    if message.text and message.text.startswith("/"):
+        return
+    
+    if not message.text:
+        return
+
+    text_lower = message.text.lower()
+    is_spam = any(kw in text_lower for kw in SPAM_KEYWORDS)
+
+    if is_spam:
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+        except Exception as e:
+            print(f"Не удалось удалить спам/рекламу в группе: {e}")
+
+
+# ─── Автомодерация каналов ─────────────────────────────────────────────────────
 
 @router.channel_post()
 async def moderate_channel_posts(message: Message, bot: Bot):
@@ -398,12 +418,12 @@ async def moderate_channel_posts(message: Message, bot: Bot):
         try:
             await bot.delete_message(message.chat.id, message.message_id)
         except Exception as e:
-            print(f"Не удалось удалить спам: {e}")
+            print(f"Не удалось удалить спам в канале: {e}")
 
 
-# ─── Fallback ──────────────────────────────────────────────────────────────────
+# ─── Fallback (только для лички) ───────────────────────────────────────────────
 
-@router.message()
+@router.message(F.chat.type == "private")
 async def fallback(message: Message, state: FSMContext):
     current = await state.get_state()
     if current is None:
@@ -434,7 +454,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-    print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией!")
+    print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией и защитой чата!")
     await dp.start_polling(bot)
 
 
