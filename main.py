@@ -12,11 +12,14 @@ from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from config import BOT_TOKEN, ADMIN_ID, CHANNELS
+from config import BOT_TOKEN, CHANNELS
 from database import (
     init_db, save_user, add_request, update_request_status,
     get_user_profile, has_accepted, set_accepted, update_balance
 )
+
+# Твой ID администратора
+ADMIN_ID = 1310962889
 
 router = Router()
 
