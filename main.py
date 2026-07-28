@@ -298,30 +298,23 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
     action      = parts[1]
     req_id      = int(parts[2])
     section_key = "_".join(parts[3:]) if len(parts) > 3 else "chan_help"
-
-    if action == "yes":
+if action == "yes":
         user_id, section_name, what, photo_id = update_request_status(req_id, "published")
         chan_username = CHANNELS.get(section_key, "@asar_hq")
+        
         try:
             if photo_id:
                 await bot.send_photo(
                     chan_username,
                     photo=photo_id,
-                    caption=f"📂 <b>{section_name}</b>\n\n{what}",
+                    caption=f"🤝 <b>{section_name}</b>\n\n{what}",
                     parse_mode="HTML"
                 )
             else:
                 await bot.send_message(
                     chan_username,
-                    f"📂 <b>{section_name}</b>\n\n{what}",
+                    text=f"🤝 <b>{section_name}</b>\n\n{what}",
                     parse_mode="HTML"
-                )
-            note = f"опубликована в {chan_username}"
-        except Exception as e:
-            note = f"не удалось отправить в канал: {e}"
-
-                parse_mode="HTML"
-            )
             note = f"опубликована в {chan_username}"
         except Exception as e:
             note = f"не удалось отправить в канал: {e}"
@@ -329,23 +322,21 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         await callback.message.edit_caption(
             caption=f"✅ Заявка #{req_id} одобрена — {note}.",
             parse_mode="HTML"
-        ) if callback.message.photo else await callback.message.edit_text(
-            f"✅ Заявка #{req_id} одобрена — {note}.",
-            parse_mode="HTML"
         )
+
         await bot.send_message(
             user_id,
             f"🎉 Ваша заявка #{req_id} одобрена и опубликована!"
         )
-    else:
+
+    elif action == "no":
         update_request_status(req_id, "rejected")
         await callback.message.edit_caption(
             caption=f"❌ Заявка #{req_id} отклонена.",
             parse_mode="HTML"
-        ) if callback.message.photo else await callback.message.edit_text(
-            f"❌ Заявка #{req_id} отклонена.",
-            parse_mode="HTML"
         )
+
+    
 
 
 # ─── Назад в меню ──────────────────────────────────────────────────────────────
@@ -358,6 +349,7 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         reply_markup=main_menu(),
         parse_mode="HTML"
     )
+        
 
 
 # ─── Барсик / Профиль ──────────────────────────────────────────────────────────
