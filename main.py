@@ -417,10 +417,11 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         except Exception as e:
             note = f"не удалось отправить в канал: {e}"
 
-        await callback.message.edit_caption(
-            caption=f"✅ Заявка #{req_id} одобрена — {note}.",
-            parse_mode="HTML"
-        )
+        # Удаляем сообщение с кнопками модерации после одобрения
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
 
         await bot.send_message(
             user_id,
@@ -429,10 +430,12 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
 
     elif action == "no":
         user_id, _, _, _ = update_request_status(req_id, "rejected")
-        await callback.message.edit_caption(
-            caption=f"❌ Заявка #{req_id} отклонена.",
-            parse_mode="HTML"
-        )
+        
+        # Удаляем сообщение с кнопками модерации после отклонения
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
 
         try:
             await bot.send_message(
@@ -558,7 +561,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-    print("🚀 Бот АСАР запущен с нижней клавиатурой и презентацией блоков!")
+    print("🚀 Бот АСАР запущен с автоудалением сообщений модерации!")
     await dp.start_polling(bot)
 
 
