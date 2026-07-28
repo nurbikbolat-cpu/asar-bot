@@ -100,7 +100,7 @@ def get_user_profile(user_id):
     conn.close()
     if user is None:
         return None
-    return user[0], user[1], user[2] if user[2] is not None else 5, published, total
+    return user[0], user[1], user[2] if user[2] is not None else 3, published, total
 
 
 def update_request_status(req_id, status):
@@ -115,3 +115,15 @@ def update_request_status(req_id, status):
     if row is None:
         raise ValueError(f"Request #{req_id} not found")
     return row[0], row[1], row[2], row[3]
+
+
+def update_balance(user_id: int, amount: int):
+    """Начисляет или списывает баурсаки с баланса пользователя с защитой от ухода в минус."""
+    conn = sqlite3.connect(DB)
+    conn.execute("""
+        UPDATE users 
+        SET bauyrsaklar = MAX(0, bauyrsaklar + ?) 
+        WHERE user_id = ?
+    """, (amount, user_id))
+    conn.commit()
+    conn.close()
