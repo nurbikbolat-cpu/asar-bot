@@ -299,13 +299,27 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
     section_key = "_".join(parts[3:]) if len(parts) > 3 else "chan_help"
 
     if action == "yes":
-        user_id, section_name, what = update_request_status(req_id, "published")
+        user_id, section_name, what, photo_id = update_request_status(req_id, "published")
         chan_username = CHANNELS.get(section_key, "@asar_hq")
 
-        try:
-            await bot.send_message(
-                chan_username,
-                f"📂 <b>{section_name}</b>\n\n{what}",
+                try:
+            if photo_id:
+                await bot.send_photo(
+                    chan_username,
+                    photo=photo_id,
+                    caption=f"📂 <b>{section_name}</b>\n\n{what}",
+                    parse_mode="HTML"
+                )
+            else:
+                await bot.send_message(
+                    chan_username,
+                    f"📂 <b>{section_name}</b>\n\n{what}",
+                    parse_mode="HTML"
+                )
+            note = f"опубликована в {chan_username}"
+        except Exception as e:
+            note = f"не удалось отправить в канал: {e}"
+
                 parse_mode="HTML"
             )
             note = f"опубликована в {chan_username}"
