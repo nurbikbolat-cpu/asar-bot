@@ -347,7 +347,6 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     req_id = add_request(user_id, section_name, what, where, when, photo_id)
     chan_username = CHANNELS.get(section_key, "@asar_hq")
 
-    # Стилизованный блок цитирования для пользователя
     await message.answer(
         "✅ <b>Заявка принята!</b> Модератор скоро проверит её.\n\n"
         f"<blockquote><b>📂 {section_name}</b>\n"
@@ -363,7 +362,6 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"mod_no_{req_id}_{section_key}")]
     ])
 
-    # Стилизованный блок цитирования для админа
     caption = (
         f"🔔 <b>Новая заявка #{req_id}</b>\n"
         f"👤 {full_name} (@{username})  →  {chan_username}\n\n"
