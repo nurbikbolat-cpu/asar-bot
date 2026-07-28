@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
-    KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
 from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -26,23 +26,23 @@ router = Router()
 class Form(StatesGroup):
     waiting_what   = State()
     waiting_where  = State()
-    waiting_geo    = State()
     waiting_when   = State()
     waiting_photo  = State()
 
 
-# ─── Клавиатуры ────────────────────────────────────────────────────────────────
+# ─── Нижняя клавиатура (как на скриншоте) ───────────────────────────────────────
 
-def main_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🤝 Живая опора",  callback_data="chan_help"),
-         InlineKeyboardButton(text="📦 Общаг/Базар",  callback_data="chan_bazar")],
-        [InlineKeyboardButton(text="🛠 Общий Гараж",  callback_data="chan_garage"),
-         InlineKeyboardButton(text="♻️ Остатки",      callback_data="chan_ostatki")],
-        [InlineKeyboardButton(text="🏢 Весь Штаб (Каналы)", url="https://t.me/asar_help")],
-        [InlineKeyboardButton(text="📜 О проекте / Правила", callback_data="menu_rules"),
-         InlineKeyboardButton(text="🐱 Барсик (Профиль)", callback_data="menu_barsik")]
-    ])
+def main_reply_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🤝 Живая опора"), KeyboardButton(text="📦 Общаг/Базар")],
+            [KeyboardButton(text="🛠 Общий Гараж"), KeyboardButton(text="♻️ Остатки")],
+            [KeyboardButton(text="🏢 Весь Штаб (Каналы)"), KeyboardButton(text="🐱 Барсик (Профиль)")],
+            [KeyboardButton(text="📜 О проекте / Правила")]
+        ],
+        resize_keyboard=True,
+        is_persistent=True
+    )
 
 def back_btn():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -55,49 +55,46 @@ def skip_photo_btn():
         [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
     ])
 
-def geo_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📍 Отправить мою геопозицию", request_location=True)],
-            [KeyboardButton(text="⏭ Пропустить геолокацию")]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-
 
 CHANNEL_INFO = {
-    "chan_help":    "Живая опора",
-    "chan_bazar":   "Общаг/Базар",
-    "chan_garage":  "Общий Гараж",
-    "chan_ostatki": "Остатки",
+    "🤝 Живая опора": "chan_help",
+    "📦 Общаг/Базар": "chan_bazar",
+    "🛠 Общий Гараж": "chan_garage",
+    "♻️ Остатки": "chan_ostatki",
+}
+
+SECTION_KEYS_MAP = {
+    "🤝 Живая опора": "chan_help",
+    "📦 Общаг/Базар": "chan_bazar",
+    "🛠 Общий Гараж": "chan_garage",
+    "♻️ Остатки": "chan_ostatki",
 }
 
 SECTION_QUESTIONS = {
     "chan_help": (
         "🤝 <b>В чем нужна помощь или чем можешь выручить?</b> Опиши суть:",
-        "📍 <b>В каком районе или месте это актуально?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
+        "📍 <b>В каком районе или месте это актуально?</b>",
         "⏱ <b>Когда это нужно или когда удобно помочь?</b>",
     ),
     "chan_bazar": (
         "📦 <b>Что за товар, вещь или совместная закупка?</b> Опиши детально:",
-        "📍 <b>Где забирать или где актуально?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
+        "📍 <b>Где забирать или где актуально?</b>",
         "💰 <b>Какая цена, условия или сроки закупки?</b>",
     ),
     "chan_garage": (
         "🛠 <b>Какой инструмент, техника или оборудование нужно / предлагаешь?</b>",
-        "📍 <b>Где находится железо / куда доставить?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
+        "📍 <b>Где находится железо / куда доставить?</b>",
         "⏱ <b>На какой срок нужно или когда доступно?</b>",
     ),
     "chan_ostatki": (
         "♻️ <b>Что за материалы или излишки отдаёшь/ищешь?</b> Опиши:",
-        "📍 <b>Где территориально лежат остатки?</b> (Напиши текстом или отправь геопозицию кнопкой ниже)",
+        "📍 <b>Где территориально лежат остатки?</b>",
         "⏱ <b>До какого времени актуально / когда вывоз?</b>",
     ),
 }
 
 
-# ─── /start и Юр. соглашение ────────────────────────────────────────────────────
+# ─── /start и Юр. соглашение ────────────────────────────────____________________
 
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
@@ -141,55 +138,90 @@ async def cmd_start(message: Message, state: FSMContext):
 
     await message.answer(
         "🟢 <b>АСАР — Это когда мы вместе</b>\n\n"
-        "Выберите нужный раздел:",
-        reply_markup=main_menu(),
+        "Выберите нужный раздел на панели снизу:",
+        reply_markup=main_reply_menu(),
         parse_mode="HTML"
     )
 
 
 @router.callback_query(F.data == "accept_legal_rules")
-async def process_legal_acceptance(callback: CallbackQuery):
+async def process_legal_acceptance(callback: CallbackQuery, state: FSMContext):
     set_accepted(callback.from_user.id)
     await callback.answer("Соглашение принято. Добро пожаловать!")
-    
-    accepted_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏢 Перейти в Штаб / Каналы", url="https://t.me/asar_help")],
-        [InlineKeyboardButton(text="🟢 Открыть меню бота", callback_data="menu_main")]
-    ])
-    
-    await callback.message.edit_text(
+
+    await callback.message.delete()
+    await callback.message.answer(
         "🟢 <b>АСАР — Это когда мы вместе</b>\n\n"
-        "Правила приняты! Залетай в наш Штаб, чтобы видеть все каналы, или открывай меню бота:",
-        reply_markup=accepted_kb,
+        "Правила приняты! Пользуйся меню внизу:",
+        reply_markup=main_reply_menu(),
         parse_mode="HTML"
     )
 
 
-# ─── Пошаговые заявки (с защитой от неверного ввода и геопозицией) ───────────────
+# ─── Обработка текстовых кнопок из нижнего меню ──────────────────────────────
 
-@router.callback_query(F.data.startswith("chan_"))
-async def section_selected(callback: CallbackQuery, state: FSMContext):
-    key = callback.data
-    section_name = CHANNEL_INFO.get(key, "Раздел")
+@router.message(F.text == "🏢 Весь Штаб (Каналы)", F.chat.type == "private")
+async def btn_channels(message: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏢 Перейти в Штаб / Каналы", url="https://t.me/asar_help")]
+    ])
+    await message.answer("🏢 <b>Штаб Asar</b> — жми кнопку ниже, чтобы залететь в каналы:", reply_markup=kb, parse_mode="HTML")
+
+@router.message(F.text == "📜 О проекте / Правила", F.chat.type == "private")
+async def btn_rules(message: Message):
+    await message.answer(DISCLAIMER_TEXT, parse_mode="HTML", reply_markup=main_reply_menu())
+
+@router.message(F.text == "🐱 Барсик (Профиль)", F.chat.type == "private")
+async def btn_profile(message: Message):
+    user_id = message.from_user.id
+    profile = get_user_profile(user_id)
+
+    if profile is None:
+        text = (
+            "🐱 <b>Барсик / Профиль</b>\n\n"
+            "Профиль ещё не создан. Нажми /start, чтобы зарегистрироваться."
+        )
+    else:
+        full_name, username, bauyrsaklar, published, total = profile
+        handle = f"@{username}" if username else "—"
+        pending = total - published
+        text = (
+            f"🐱 <b>Профиль участника</b>\n\n"
+            f"👤 <b>{full_name}</b> ({handle})\n\n"
+            f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
+            f"✅ <b>Опубликовано заявок:</b> {published}\n"
+            f"📋 <b>Всего подано:</b> {total} (на модерации: {pending})\n\n"
+            f"💡 <i>Баурсаки — энергия сообщества. Помог или поделился ресурсом — получил баурсак. Воспользовался помощью — баланс списывается. Никаких халявщиков, только честный обмен!</i>"
+        )
+    await message.answer(text, parse_mode="HTML", reply_markup=main_reply_menu())
+
+
+@router.message(F.text.in_(["🤝 Живая опора", "📦 Общаг/Базар", "🛠 Общий Гараж", "♻️ Остатки"]), F.chat.type == "private")
+async def section_text_selected(message: Message, state: FSMContext):
+    section_title = message.text
+    key = SECTION_KEYS_MAP.get(section_title)
+    section_name = section_title
 
     await state.set_state(Form.waiting_what)
     await state.update_data(section_key=key, section_name=section_name)
 
     q_what = SECTION_QUESTIONS[key][0]
-    await callback.message.edit_text(
+    await message.answer(
         f"📂 <b>{section_name}</b>\n\n{q_what}",
         reply_markup=back_btn(),
         parse_mode="HTML"
     )
 
 
+# ─── Пошаговые заявки ──────────────────────────────────────────────────────────
+
 @router.message(Form.waiting_what, F.chat.type == "private")
 async def step_what(message: Message, state: FSMContext):
     if not message.text:
-        await message.answer("⚠️ Братишка, нужно отправить текстовое описание! Попробуй еще раз или нажми кнопку отмена.", reply_markup=back_btn())
+        await message.answer("⚠️ Братишка, нужно отправить текстовое описание! Попробуй еще раз.", reply_markup=back_btn())
         return
     if message.text.startswith("/"):
-        await message.answer("⚠️ Сначала заполни текущий пункт или нажми кнопку «Отмена / Главное меню».", reply_markup=back_btn())
+        await message.answer("⚠️ Сначала заполни текущий пункт или нажми кнопку отмены.", reply_markup=back_btn())
         return
 
     await state.update_data(what=message.text)
@@ -205,50 +237,14 @@ async def step_where(message: Message, state: FSMContext):
         await message.answer("⚠️ Напиши текстом, где это актуально или где забирать.", reply_markup=back_btn())
         return
     if message.text.startswith("/"):
-        await message.answer("⚠️ Заверши заполнение заявки или отмени действие кнопкой ниже.", reply_markup=back_btn())
+        await message.answer("⚠️ Заверши заполнение заявки или отмени действие.", reply_markup=back_btn())
         return
 
     await state.update_data(where=message.text)
-    await state.set_state(Form.waiting_geo)
-    await message.answer(
-        "📍 Хочешь прикрепить точную геолокацию к заявке? Нажми кнопку ниже или пропусти этот шаг:",
-        reply_markup=geo_keyboard(),
-        parse_mode="HTML"
-    )
-
-
-@router.message(Form.waiting_geo, F.location, F.chat.type == "private")
-async def step_geo_location(message: Message, state: FSMContext):
-    lat = message.location.latitude
-    lon = message.location.longitude
-    geo_text = f"📍 Геопозиция: (широта: {lat:.4f}, долгота: {lon:.4f}) [Открыть на карте](https://maps.google.com/?q={lat},{lon})"
-    
-    data = await state.get_data()
-    combined_where = f"{data.get('where', '')}\n{geo_text}"
-    await state.update_data(where=combined_where, latitude=lat, longitude=lon)
-    
     data = await state.get_data()
     q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
-    await message.answer("⏱ Укажи сроки или время текстом:", reply_markup=back_btn(), parse_mode="HTML")
-
-
-@router.message(Form.waiting_geo, F.text == "⏭ Пропустить геолокацию", F.chat.type == "private")
-async def step_geo_skip(message: Message, state: FSMContext):
-    data = await state.get_data()
-    q_when = SECTION_QUESTIONS[data["section_key"]][2]
-    await state.set_state(Form.waiting_when)
-    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
-    await message.answer("⏱ Укажи сроки или время текстом:", reply_markup=back_btn(), parse_mode="HTML")
-
-
-@router.message(Form.waiting_geo, F.chat.type == "private")
-async def step_geo_invalid(message: Message):
-    await message.answer(
-        "⚠️ Пожалуйста, используй кнопку «📍 Отправить мою геопозицию» или «⏭ Пропустить геолокацию».",
-        reply_markup=geo_keyboard()
-    )
+    await message.answer(q_when, reply_markup=back_btn(), parse_mode="HTML")
 
 
 @router.message(Form.waiting_when, F.chat.type == "private")
@@ -302,8 +298,6 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     where        = data.get("where", "—")
     when         = data.get("when", "—")
     photo_id     = data.get("photo_id")
-    latitude     = data.get("latitude")
-    longitude    = data.get("longitude")
 
     if user:
         user_id   = user.id
@@ -321,7 +315,7 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         "✅ <b>Заявка принята!</b>\n"
         "Модератор проверит её и опубликует в канале.",
         parse_mode="HTML",
-        reply_markup=main_menu()
+        reply_markup=main_reply_menu()
     )
 
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -342,12 +336,6 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         await bot.send_photo(ADMIN_ID, photo=photo_id, caption=caption, reply_markup=admin_kb, parse_mode="HTML")
     else:
         await bot.send_message(ADMIN_ID, caption, reply_markup=admin_kb, parse_mode="HTML")
-
-    if latitude and longitude:
-        try:
-            await bot.send_location(ADMIN_ID, latitude=latitude, longitude=longitude)
-        except Exception:
-            pass
 
 
 # ─── Модерация заявок ──────────────────────────────────────────────────────────
@@ -402,13 +390,13 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         try:
             await bot.send_message(
                 user_id,
-                f"❌ К сожалению, твоя заявка #{req_id} не прошла модерацию. Отредактируй её и подай заново через главное меню."
+                f"❌ К сожалению, твоя заявка #{req_id} не прошла модерацию. Подай заново через меню."
             )
         except Exception:
             pass
 
 
-# ─── Админские команды для баурсаков (/give и /take) ───────────────────────────
+# ─── Админские команды (/give и /take) ─────────────────────────────────────────
 
 @router.message(Command("give"), F.from_user.id == ADMIN_ID)
 async def admin_give_currency(message: Message):
@@ -416,7 +404,6 @@ async def admin_give_currency(message: Message):
     if len(parts) != 3:
         await message.answer("⚠️ Формат: <code>/give [user_id] [сумма]</code>", parse_mode="HTML")
         return
-
     try:
         target_id = int(parts[1])
         amount = int(parts[2])
@@ -426,7 +413,6 @@ async def admin_give_currency(message: Message):
 
     update_balance(target_id, amount)
     await message.answer(f"✅ Начислено {amount} баурсаков пользователю <code>{target_id}</code>!", parse_mode="HTML")
-
     try:
         await message.bot.send_message(target_id, f"🎉 Тебе зачислено <b>{amount} баурсаков</b> от администрации!", parse_mode="HTML")
     except Exception:
@@ -439,7 +425,6 @@ async def admin_take_currency(message: Message):
     if len(parts) != 3:
         await message.answer("⚠️ Формат: <code>/take [user_id] [сумма]</code>", parse_mode="HTML")
         return
-
     try:
         target_id = int(parts[1])
         amount = int(parts[2])
@@ -449,69 +434,29 @@ async def admin_take_currency(message: Message):
 
     update_balance(target_id, -amount)
     await message.answer(f"✅ Списано {amount} баурсаков у пользователя <code>{target_id}</code>!", parse_mode="HTML")
-
     try:
         await message.bot.send_message(target_id, f"⚠️ У тебя списано <b>{amount} баурсаков</b> администрацией.", parse_mode="HTML")
     except Exception:
         pass
 
 
-# ─── Навигация, Правила и Профиль ──────────────────────────────────────────────
+# ─── Возврат в главное меню через инлайн-кнопку отмены ─────────────────────────
 
 @router.callback_query(F.data == "menu_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text(
+    await callback.message.answer(
         "🟢 <b>Главное меню АСАР:</b>",
-        reply_markup=main_menu(),
+        reply_markup=main_reply_menu(),
         parse_mode="HTML"
     )
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
 
 
-@router.callback_query(F.data == "menu_rules")
-async def menu_rules(callback: CallbackQuery):
-    await callback.message.edit_text(
-        DISCLAIMER_TEXT,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_main")]
-        ]),
-        parse_mode="HTML"
-    )
-
-
-@router.callback_query(F.data == "menu_barsik")
-async def barsik(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    profile = get_user_profile(user_id)
-
-    if profile is None:
-        text = (
-            "🐱 <b>Барсик / Профиль</b>\n\n"
-            "Профиль ещё не создан. Нажми /start, чтобы зарегистрироваться."
-        )
-    else:
-        full_name, username, bauyrsaklar, published, total = profile
-        handle = f"@{username}" if username else "—"
-        pending = total - published
-        text = (
-            f"🐱 <b>Профиль участника</b>\n\n"
-            f"👤 <b>{full_name}</b> ({handle})\n\n"
-            f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
-            f"✅ <b>Опубликовано заявок:</b> {published}\n"
-            f"📋 <b>Всего подано:</b> {total} (на модерации: {pending})\n\n"
-            f"💡 <i>Баурсаки — энергия сообщества. Помог или поделился ресурсом — получил баурсак. Воспользовался помощью — баланс списывается. Никаких халявщиков, только честный обмен!</i>"
-        )
-
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_main")]
-        ]),
-        parse_mode="HTML"
-    )
-
-
-# ─── Антиспам и защита групп/каналов ──────────────────────────────────────────
+# ─── Антиспам ──────────────────────────────────────────────────────────────────
 
 SPAM_KEYWORDS = [
     "http://", "https://", "t.me/", "@", "купить", "заработок",
@@ -524,13 +469,12 @@ async def group_antispam_and_block(message: Message, bot: Bot):
         return
     if not message.text:
         return
-
     text_lower = message.text.lower()
     if any(kw in text_lower for kw in SPAM_KEYWORDS):
         try:
             await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
         except Exception as e:
-            print(f"Не удалось удалить спам/рекламу в группе: {e}")
+            print(f"Не удалось удалить спам в группе: {e}")
 
 
 @router.channel_post()
@@ -547,17 +491,7 @@ async def moderate_channel_posts(message: Message, bot: Bot):
             print(f"Не удалось удалить спам в канале: {e}")
 
 
-# ─── Fallback и Запуск ─────────────────────────────────────────────────────────
-
-@router.message(F.chat.type == "private")
-async def fallback(message: Message, state: FSMContext):
-    current = await state.get_state()
-    if current is None:
-        await message.answer(
-            "👋 Привет! Нажмите /start, чтобы открыть меню.",
-            reply_markup=main_menu()
-        )
-
+# ─── Запуск ────────────────────────────────────────────────────────────────────
 
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
@@ -579,7 +513,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-    print("🚀 Бот АСАР запущен — баурсаки и админка активны!")
+    print("🚀 Бот АСАР запущен с нижней клавиатурой!")
     await dp.start_polling(bot)
 
 
