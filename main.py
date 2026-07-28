@@ -308,13 +308,12 @@ if action == "yes":
                     chan_username,
                     photo=photo_id,
                     caption=f"🤝 <b>{section_name}</b>\n\n{what}",
-                    parse_mode="HTML"
-                )
-            else:
-                await bot.send_message(
-                    chan_username,
-                    text=f"🤝 <b>{section_name}</b>\n\n{what}",
-                    parse_mode="HTML"
+                    else:
+                        await bot.send_message(
+                            chat_id=chan_username,
+                            text=f"🤝 <b>{section_name}</b>\n\n{what}",
+                            parse_mode="HTML"
+                        )           
             note = f"опубликована в {chan_username}"
         except Exception as e:
             note = f"не удалось отправить в канал: {e}"
