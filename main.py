@@ -415,9 +415,10 @@ async def fallback(message: Message, state: FSMContext):
             "👋 Привет! Нажмите /start, чтобы открыть меню.",
             reply_markup=main_menu()
         )
-
-
 # ─── Запуск ────────────────────────────────────────────────────────────────────
+
+async def handle_ping(request):
+    return web.Response(text="Bot is alive!")
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -426,9 +427,21 @@ async def main():
     dp  = Dispatcher()
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Заглушка для Render, чтобы открыть порт
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
     print("🚀 Бот АСАР запущен — пошаговые заявки с модерацией!")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
