@@ -16,7 +16,7 @@ from config import BOT_TOKEN, CHANNELS
 from database import (
     init_db, save_user, add_request, update_request_status,
     get_user_profile, has_accepted, set_accepted, update_balance,
-    get_user_requests_detailed, update_user_full_profile
+    get_user_requests_detailed, update_user_full_profile, get_user_profile_by_id
 )
 
 # Твой ID администратора
@@ -57,7 +57,6 @@ def back_btn():
         [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
     ])
 
-# Клавиатура для отправки реальной геопозиции через системную кнопку Reply
 def where_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -260,6 +259,37 @@ async def callback_my_request_info(callback: CallbackQuery):
     await callback.answer("Эта заявка еще проверяется модератором или отклонена.", show_alert=True)
 
 
+# Просмотр чужого профиля по нажатию кнопки в канале / чате обсуждений
+@router.callback_query(F.data.startswith("view_user_"))
+async def callback_view_user_profile(callback: CallbackQuery):
+    target_user_id = int(callback.data.split("_")[2])
+    profile = get_user_profile_by_id(target_user_id)
+
+    if not profile:
+        await callback.answer("⚠️ Профиль участника не найден.", show_alert=True)
+        return
+
+    full_name, username, bauyrsaklar, role, bio = profile
+    handle = f"@{username}" if username else "—"
+    role_text = role if role else "<i>Не указана</i>"
+    bio_text = bio if bio else "<i>Не указано</i>"
+
+    text = (
+        f"👤 <b>Профиль участника Asar</b>\n\n"
+        f"🏷 <b>Имя:</b> {full_name} ({handle})\n"
+        f"🛠 <b>Роль / Профессия:</b> {role_text}\n"
+        f"📝 <b>О себе:</b> {bio_text}\n\n"
+        f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>"
+    )
+
+    await callback.answer()
+    # Отправляем карточку в ЛС пользователю, который нажал кнопку
+    try:
+        await callback.message.bot.send_message(callback.from_user.id, text, parse_mode="HTML")
+    except Exception:
+        await callback.answer("⚠️ Чтобы посмотреть профиль, сначала запусти бота в ЛС (/start)!", show_alert=True)
+
+
 @router.callback_query(F.data == "edit_profile")
 async def edit_profile_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -342,11 +372,9 @@ async def step_what(message: Message, state: FSMContext):
     data = await state.get_data()
     q_where = SECTION_QUESTIONS[data["section_key"]][1]
     await state.set_state(Form.waiting_where)
-    # Выдаем клавиатуру с кнопкой запроса гео и кнопкой отмены
     await message.answer(q_where, reply_markup=where_kb(), parse_mode="HTML")
 
 
-# Обработка нажатия на кнопку "Отправить мою геолокацию" (реальные координаты)
 @router.message(Form.waiting_where, F.location, F.chat.type == "private")
 async def step_where_location(message: Message, state: FSMContext):
     geo_text = f"📍 Геолокация: [Координаты: {message.location.latitude}, {message.location.longitude}]"
@@ -354,11 +382,9 @@ async def step_where_location(message: Message, state: FSMContext):
     data = await state.get_data()
     q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    # Возвращаем обычную разметку без клавиатуры гео (убираем ReplyKeyboardRemove, чтобы вернуть нормальный ввод времени)
     await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
 
 
-# Обработка ввода района текстом или кнопки отмены на шаге где
 @router.message(Form.waiting_where, F.chat.type == "private")
 async def step_where(message: Message, state: FSMContext):
     if message.text == "⬅️ Отмена / Главное меню":
@@ -498,12 +524,17 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             f"<blockquote>{what}</blockquote>"
         )
 
+        # Добавляем кнопку "Профиль автора" к посту в канале / чате обсуждений
+        chan_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👤 Профиль автора", callback_data=f"view_user_{user_id}")]
+        ])
+
         sent_post_id = None
         try:
             if photo_id:
-                msg_in_chan = await bot.send_photo(chat_id=chan_username, photo=photo_id, caption=channel_text, parse_mode="HTML")
+                msg_in_chan = await bot.send_photo(chat_id=chan_username, photo=photo_id, caption=channel_text, reply_markup=chan_kb, parse_mode="HTML")
             else:
-                msg_in_chan = await bot.send_message(chat_id=chan_username, text=channel_text, parse_mode="HTML")
+                msg_in_chan = await bot.send_message(chat_id=chan_username, text=channel_text, reply_markup=chan_kb, parse_mode="HTML")
             sent_post_id = msg_in_chan.message_id
         except Exception as e:
             print(f"Не удалось отправить в канал: {e}")
@@ -587,7 +618,7 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         pass
 
 
-# ─── Запуск ────────────────────────────────────────────────────────────────────
+# ─── Запуск (веб-сервер + лонг-поллинг для бесплатного Render) ─────────────────
 
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
