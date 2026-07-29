@@ -2,6 +2,9 @@ import os
 from aiohttp import web
 import asyncio
 import logging
+import time
+from collections import defaultdict
+import aiohttp
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
     Message, CallbackQuery,
@@ -11,6 +14,9 @@ from aiogram.types import (
 from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
 
 from config import BOT_TOKEN, CHANNELS
 from database import (
@@ -22,6 +28,101 @@ from database import (
 
 ADMIN_ID = 1310962889
 router = Router()
+
+# Настройки нейросети для проверки фото (замените на свои ключи от Sightengine)
+SIGHTENGINE_API_USER = "YOUR_API_USER"
+SIGHTENGINE_API_SECRET = "YOUR_API_SECRET"
+
+
+async def check_image_nsfw(photo_file_url: str) -> bool:
+    data = {
+        'url': photo_file_url,
+        'models': 'nudity-2.0',
+        'api_user': SIGHTENGINE_API_USER,
+        'api_secret': SIGHTENGINE_API_SECRET
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post('https://api.sightengine.com/1.0/check.json', data=data) as resp:
+                result = await resp.json()
+                if result.get('status') == 'success':
+                    nudity = result.get('nudity', {})
+                    if nudity.get('sexual_activity', 0) > 0.8 or nudity.get('raw', 0) > 0.8:
+                        return True
+    except Exception as e:
+        logging.error(f"Ошибка запроса к нейросети модерации: {e}")
+    return False
+
+
+# ─── Антиспам / Модератор Middleware ───────────────────────────────────────────
+
+class ModerationMiddleware(BaseMiddleware):
+    def __init__(self, limit_seconds: float = 1.5):
+        self.limit_seconds = limit_seconds
+        self.user_last_message = defaultdict(float)
+
+    async def __call__(self, handler, event, data):
+        if not isinstance(event, Message) or not event.from_user:
+            return await handler(event, data)
+        
+        user_id = event.from_user.id
+        chat = event.chat
+
+        # Пропускаем личные сообщения
+        if chat.type == "private":
+            save_user(user_id, event.from_user.username, event.from_user.full_name)
+            return await handler(event, data)
+
+        # Админа не трогаем
+        if user_id == ADMIN_ID:
+            return await handler(event, data)
+
+        now = time.time()
+        last_time = self.user_last_message[user_id]
+
+        # 1. Антифлуд (слишком частые сообщения)
+        if now - last_time < self.limit_seconds:
+            try:
+                await event.delete()
+                warning = await event.answer(f"⚠️ {event.from_user.first_name}, не отправляйте сообщения так часто (флуд).")
+                await asyncio.sleep(4)
+                await warning.delete()
+            except Exception:
+                pass
+            return None
+
+        self.user_last_message[user_id] = now
+
+        # 2. Проверка фотографий через нейросеть (18+)
+        if event.photo:
+            try:
+                file = await event.bot.get_file(event.photo[-1].file_id)
+                file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+                
+                is_nsfw = await check_image_nsfw(file_url)
+                if is_nsfw:
+                    await event.delete()
+                    warning = await event.answer(f"🚫 {event.from_user.first_name}, отправка материалов 18+ запрещена!")
+                    await asyncio.sleep(5)
+                    await warning.delete()
+                    return None
+            except Exception as e:
+                logging.error(f"Ошибка проверки фото: {e}")
+
+        # 3. Фильтр ссылок / спама (мат разрешен и не проверяется)
+        if event.text:
+            text_lower = event.text.lower()
+            if any(trigger in text_lower for trigger in ["http://", "https://", "www."]) and "t.me/asar" not in text_lower:
+                try:
+                    await event.delete()
+                    warning = await event.answer(f"🚫 {event.from_user.first_name}, ссылки и сторонние рекламы в чате запрещены!")
+                    await asyncio.sleep(5)
+                    await warning.delete()
+                except Exception:
+                    pass
+                return None
+
+        return await handler(event, data)
 
 
 # ─── FSM Состояния ─────────────────────────────────────────────────────────────
@@ -702,8 +803,13 @@ async def handle_ping(request):
 async def main():
     logging.basicConfig(level=logging.INFO)
     init_db()
-    bot = Bot(token=BOT_TOKEN)
+    
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+    
+    # Подключаем middleware модерации (антиспам + ссылки + проверка картинок 18+, мат разрешен)
+    dp.message.middleware(ModerationMiddleware(limit_seconds=1.5))
+
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
 
@@ -714,7 +820,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000)))
     await site.start()
 
-    print("🚀 Бот АСАР успешно запущен со всеми обновлениями!")
+    print("🚀 Бот АСАР успешно запущен (антиспам, защита от 18+ фото, мат разрешен)!")
     await dp.start_polling(bot)
 
 
