@@ -153,6 +153,31 @@ def legal_kb():
 @router.message(CommandStart(), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    
+    # Обработка перехода по ссылке профиля (например: /start profile_1310962889)
+    args = message.text.split()
+    if len(args) > 1 and args[1].startswith("profile_"):
+        try:
+            target_user_id = int(args[1].replace("profile_", ""))
+            profile = get_user_profile_by_id(target_user_id)
+            
+            if profile:
+                full_name, username, bauyrsaklar, role, bio = profile
+                handle = f"@{username}" if username else "—"
+                role_text = role if role else "<i>Не указана</i>"
+                bio_text = bio if bio else "<i>Не указано</i>"
+
+                card_text = (
+                    f"👤 <b>Профиль участника Asar</b>\n\n"
+                    f"🏷 <b>Имя:</b> {full_name} ({handle})\n"
+                    f"🛠 <b>Роль / Профессия:</b> {role_text}\n"
+                    f"📝 <b>О себе:</b> {bio_text}\n\n"
+                    f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>"
+                )
+                await message.answer(card_text, parse_mode="HTML")
+        except ValueError:
+            pass
+
     save_user(
         message.from_user.id,
         message.from_user.username,
@@ -257,37 +282,6 @@ async def btn_profile(message: Message):
 @router.callback_query(F.data.startswith("my_req_"))
 async def callback_my_request_info(callback: CallbackQuery):
     await callback.answer("Эта заявка еще проверяется модератором или отклонена.", show_alert=True)
-
-
-# Просмотр чужого профиля по нажатию кнопки в канале / чате обсуждений
-@router.callback_query(F.data.startswith("view_user_"))
-async def callback_view_user_profile(callback: CallbackQuery):
-    target_user_id = int(callback.data.split("_")[2])
-    profile = get_user_profile_by_id(target_user_id)
-
-    if not profile:
-        await callback.answer("⚠️ Профиль участника не найден.", show_alert=True)
-        return
-
-    full_name, username, bauyrsaklar, role, bio = profile
-    handle = f"@{username}" if username else "—"
-    role_text = role if role else "<i>Не указана</i>"
-    bio_text = bio if bio else "<i>Не указано</i>"
-
-    text = (
-        f"👤 <b>Профиль участника Asar</b>\n\n"
-        f"🏷 <b>Имя:</b> {full_name} ({handle})\n"
-        f"🛠 <b>Роль / Профессия:</b> {role_text}\n"
-        f"📝 <b>О себе:</b> {bio_text}\n\n"
-        f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>"
-    )
-
-    await callback.answer()
-    # Отправляем карточку в ЛС пользователю, который нажал кнопку
-    try:
-        await callback.message.bot.send_message(callback.from_user.id, text, parse_mode="HTML")
-    except Exception:
-        await callback.answer("⚠️ Чтобы посмотреть профиль, сначала запусти бота в ЛС (/start)!", show_alert=True)
 
 
 @router.callback_query(F.data == "edit_profile")
@@ -535,9 +529,16 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             f"</blockquote>"
         )
 
-        # Добавляем кнопку "Профиль автора" к посту в канале / чате обсуждений
+        # Автоматически получаем username нашего бота для формирования ссылки-профиля
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username
+
+        # Делаем кнопку ссылкой, которая ведет в ЛС бота к конкретному пользователю
         chan_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👤 Профиль автора", callback_data=f"view_user_{user_id}")]
+            [InlineKeyboardButton(
+                text="👤 Профиль автора", 
+                url=f"https://t.me/{bot_username}?start=profile_{user_id}"
+            )]
         ])
 
         sent_post_id = None
