@@ -1,5 +1,4 @@
 import sqlite3
-
 DB = "asar_bot.db"
 
 
