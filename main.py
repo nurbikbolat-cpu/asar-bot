@@ -5,7 +5,7 @@ import logging
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
     Message, CallbackQuery,
-     InlineKeyboardButton,
+    InlineKeyboardButton,
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
 from aiogram.filters import CommandStart, Command, StateFilter
@@ -20,34 +20,34 @@ from database import (
     get_request_by_id, add_review
 )
 
-# Твой ID администратора
 ADMIN_ID = 1310962889
-
 router = Router()
 
 
-# ─── FSM ───────────────────────────────────────────────────────────────────────
+# ─── FSM Состояния ─────────────────────────────────────────────────────────────
 
 class Form(StatesGroup):
-    waiting_what   = State()
-    waiting_where  = State()
-    waiting_when   = State()
-    waiting_photo  = State()
+    waiting_what  = State()
+    waiting_where = State()
+    waiting_when  = State()
+    waiting_photo = State()
+
 
 class ProfileForm(StatesGroup):
     waiting_role = State()
     waiting_bio  = State()
 
+
 class ReviewForm(StatesGroup):
     waiting_comment = State()
 
-# Новые состояния для фотофиксации гаража «До / После»
+
 class GarageToolForm(StatesGroup):
     waiting_photo_before = State()
     waiting_photo_after  = State()
 
 
-# ─── Нижняя клавиатура ──────────────────────────────────────────────────────────
+# ─── Клавиатуры ────────────────────────────────────────────────────────────────
 
 def main_reply_menu():
     return ReplyKeyboardMarkup(
@@ -61,10 +61,12 @@ def main_reply_menu():
         is_persistent=True
     )
 
+
 def back_btn():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
     ])
+
 
 def where_kb():
     return ReplyKeyboardMarkup(
@@ -76,16 +78,24 @@ def where_kb():
         one_time_keyboard=True
     )
 
+
 def skip_photo_btn():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏭ Пропустить фото", callback_data="skip_photo")],
         [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
     ])
 
+
 def profile_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Настроить профиль (Кто я)", callback_data="edit_profile")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="menu_main")]
+    ])
+
+
+def legal_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Я ознакомлен и согласен", callback_data="accept_legal_rules")]
     ])
 
 
@@ -119,9 +129,6 @@ SECTION_QUESTIONS = {
     ),
 }
 
-
-# ─── /start, Пасхалка /barsik и Уведомления ──────────────────────────────────────
-
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
     "Используя экосистему Asar, вы подтверждаете и соглашаетесь со следующим:\n\n"
@@ -153,16 +160,13 @@ ABOUT_PROJECT_TEXT = (
     "3. <b>Личная безопасность:</b> Каждый участник самостоятельно оценивает риски и несёт персональную ответственность за свою жизнь, здоровье и соблюдение техники безопасности при выполнении любых работ."
 )
 
-def legal_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Я ознакомлен и согласен", callback_data="accept_legal_rules")]
-    ])
 
+# ─── Старт, Пасхалка и Соглашение ──────────────────────────────────────────────
 
 @router.message(Command("barsik"), F.chat.type == "private")
 async def cmd_barsik_easter_egg(message: Message):
     await message.answer(
-        "🐾 *Мяу! Барсик на связи.* \n"
+        "🐾 *Мяу! Барсик на связи.*\n"
         "Я главный пушистый аудитор экосистемы Asar. Слежу за тем, чтобы инструмент возвращали вовремя, а баурсаки начислялись честно! "
         "Монстры на каникулах одобряют эту сделку! 🐱✨",
         parse_mode="Markdown"
@@ -206,7 +210,7 @@ async def cmd_start(message: Message, state: FSMContext):
                             parse_mode="HTML"
                         )
                     except Exception:
-                        await message.answer("⚠️ Не удалось отправить отклик автору (возможно, у него заблокирован бот).")
+                        await message.answer("⚠️ Не удалось отправить отклик автору.")
             else:
                 await message.answer("⚠️ Заявка не найдена или была удалена.")
         except ValueError:
@@ -246,18 +250,10 @@ async def cmd_start(message: Message, state: FSMContext):
         except ValueError:
             pass
 
-    save_user(
-        message.from_user.id,
-        message.from_user.username,
-        message.from_user.full_name
-    )
+    save_user(message.from_user.id, message.from_user.username, message.from_user.full_name)
 
     if not has_accepted(message.from_user.id):
-        await message.answer(
-            DISCLAIMER_TEXT,
-            reply_markup=legal_kb(),
-            parse_mode="HTML"
-        )
+        await message.answer(DISCLAIMER_TEXT, reply_markup=legal_kb(), parse_mode="HTML")
         return
 
     await message.answer(
@@ -286,7 +282,7 @@ async def process_legal_acceptance(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ─── Система кармы и отзывов ──────────────────────────────────────────────────
+# ─── Карма и отзывы ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("karma_up_") | F.data.startswith("karma_down_"))
 async def process_karma_button(callback: CallbackQuery, state: FSMContext):
@@ -304,7 +300,7 @@ async def process_karma_button(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     await callback.message.answer(
-        "✍️ Напиши короткий комментарий или пояснение к оценке (почему ставишь плюс/минус):",
+        "✍️ Напиши короткий комментарий или пояснение к оценке:",
         reply_markup=back_btn()
     )
 
@@ -323,24 +319,26 @@ async def process_karma_comment(message: Message, state: FSMContext):
 
     add_review(target_id, message.from_user.id, rating, comment)
     await message.answer(
-        "✅ <b>Спасибо! Твой отзыв и оценка учтены в карме участника.</b>",
+        "✅ <b>Спасибо! Твой отзыв учтен в карме участника.</b>",
         reply_markup=main_reply_menu(),
         parse_mode="HTML"
     )
 
 
-# ─── Нижнее меню и профиль (с пасхалкой Барсика при нулевом балансе) ──────────
+# ─── Профиль и Штаб ────────────────────────────────────────────────────────────
 
 @router.message(F.text == "🏢 Весь Штаб (Каналы)", F.chat.type == "private")
 async def btn_channels(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏢 Перейти в Штаб / Каналы", url="https://t.me/asar_help")]
     ])
-    await message.answer("🏢 <b>Штаб Asar</b> — жми кнопку ниже, чтобы залететь в каналы:", reply_markup=kb, parse_mode="HTML")
+    await message.answer("🏢 <b>Штаб Asar</b> — жми кнопку ниже:", reply_markup=kb, parse_mode="HTML")
+
 
 @router.message(F.text == "📜 О проекте / Правила", F.chat.type == "private")
 async def btn_rules(message: Message):
     await message.answer(ABOUT_PROJECT_TEXT, parse_mode="HTML", reply_markup=main_reply_menu())
+
 
 @router.message(F.text == "🐱 Барсик (Профиль)", F.chat.type == "private")
 async def btn_profile(message: Message):
@@ -348,8 +346,7 @@ async def btn_profile(message: Message):
     profile = get_user_profile(user_id)
 
     if profile is None:
-        text = "🐱 <b>Барсик / Профиль</b>\n\nПрофиль ещё не создан. Нажми /start."
-        await message.answer(text, parse_mode="HTML", reply_markup=profile_kb())
+        await message.answer("🐱 <b>Барсик / Профиль</b>\n\nПрофиль не создан. Нажми /start.", parse_mode="HTML", reply_markup=profile_kb())
         return
 
     full_name, username, bauyrsaklar, published, total, role, bio, karma = profile
@@ -359,19 +356,17 @@ async def btn_profile(message: Message):
     bio_text = bio if bio else "<i>Не указано</i>"
     karma_str = f"+{karma}" if karma > 0 else str(karma)
 
-    barsik_note = ""
-    if bauyrsaklar <= 0:
-        barsik_note = "\n\n🐾 <i>Барсик шепчет: у тебя нулевой баланс баурсаков! Срочно выручи соседа, чтобы восстановить карму!</i>"
+    barsik_note = "\n\n🐾 <i>Барсик шепчет: у тебя нулевой баланс! Срочно выручи соседа!</i>" if bauyrsaklar <= 0 else ""
 
     text = (
         f"🐱 <b>Профиль участника</b>\n\n"
         f"👤 <b>Имя:</b> {full_name} ({handle})\n"
-        f"🏷 <b>Роль / Профессия:</b> {role_text}\n"
+        f"🏷 <b>Роль:</b> {role_text}\n"
         f"📝 <b>О себе:</b> {bio_text}\n\n"
         f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>{barsik_note}\n"
         f"⭐ <b>Карма:</b> <code>{karma_str}</code>\n"
         f"✅ <b>Опубликовано:</b> {published} | 📋 <b>Всего:</b> {total} (на модерации: {pending})\n\n"
-        f"👇 <b>Твои заявки (жми для управления):</b>"
+        f"👇 <b>Твои заявки:</b>"
     )
 
     user_requests = get_user_requests_detailed(user_id)
@@ -379,27 +374,18 @@ async def btn_profile(message: Message):
 
     for req_id, section_name, status, post_id, sec_key in user_requests:
         if status == "published":
-            btn_text = f"✅ #{req_id} ({section_name}) [Закрыть]"
-            inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"close_req_{req_id}")])
-            
-            # Если это гараж, добавляем кнопку фотофиксации «До / После»
+            inline_buttons.append([InlineKeyboardButton(text=f"✅ #{req_id} ({section_name}) [Закрыть]", callback_data=f"close_req_{req_id}")])
             if "Гараж" in section_name:
                 inline_buttons.append([InlineKeyboardButton(text=f"📸 Фотофиксация железа #{req_id}", callback_data=f"tool_photo_{req_id}")])
-                
-        elif status == "pending" or status == "moderation":
-            btn_text = f"⏳ #{req_id} ({section_name}) [На модерации]"
-            inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"my_req_{req_id}")])
+        elif status in ("pending", "moderation"):
+            inline_buttons.append([InlineKeyboardButton(text=f"⏳ #{req_id} ({section_name}) [На модерации]", callback_data=f"my_req_{req_id}")])
         elif status == "closed":
-            btn_text = f"📁 #{req_id} ({section_name}) [Закрыта]"
-            inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"my_req_{req_id}")])
+            inline_buttons.append([InlineKeyboardButton(text=f"📁 #{req_id} ({section_name}) [Закрыта]", callback_data=f"my_req_{req_id}")])
         else:
-            btn_text = f"❌ #{req_id} ({section_name}) [Отклонено]"
-            inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"my_req_{req_id}")])
+            inline_buttons.append([InlineKeyboardButton(text=f"❌ #{req_id} ({section_name}) [Отклонено]", callback_data=f"my_req_{req_id}")])
 
     inline_buttons.append([InlineKeyboardButton(text="✏️ Настроить профиль (Кто я)", callback_data="edit_profile")])
-
-    profile_markup = InlineKeyboardMarkup(inline_keyboard=inline_buttons)
-    await message.answer(text, parse_mode="HTML", reply_markup=profile_markup)
+    await message.answer(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_buttons))
 
 
 @router.callback_query(F.data.startswith("my_req_"))
@@ -407,192 +393,134 @@ async def callback_my_request_info(callback: CallbackQuery):
     await callback.answer("Статус заявки отображается на кнопке.", show_alert=True)
 
 
-# ─── ФОТОФИКСАЦИЯ ИНСТРУМЕНТОВ В ГАРАЖЕ («До / После») ───────────────────────
+# ─── Фотофиксация гаража ───────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("tool_photo_"))
 async def callback_tool_photo_start(callback: CallbackQuery, state: FSMContext):
     req_id = int(callback.data.replace("tool_photo_", ""))
     await state.update_data(current_tool_req_id=req_id)
     await state.set_state(GarageToolForm.waiting_photo_before)
-    
     await callback.answer()
     await callback.message.answer(
         "📸 <b>Фотофиксация инструмента (Шаг 1 из 2)</b>\n\n"
-        "Сделай и отправь фото текущего состояния железа *(«До» выдачи / при получении)*, чтобы в будущем не было споров:",
+        "Отправь фото текущего состояния железа *(«До» выдачи)*:",
         reply_markup=back_btn(),
         parse_mode="HTML"
     )
+
 
 @router.message(GarageToolForm.waiting_photo_before, F.photo, F.chat.type == "private")
 async def tool_get_photo_before(message: Message, state: FSMContext):
-    photo_before_id = message.photo[-1].file_id
-    await state.update_data(photo_before_id=photo_before_id)
+    await state.update_data(photo_before_id=message.photo[-1].file_id)
     await state.set_state(GarageToolForm.waiting_photo_after)
-    
     await message.answer(
         "📸 <b>Фотофиксация инструмента (Шаг 2 из 2)</b>\n\n"
-        "Отлично! Теперь сделай и отправь фото при возврате / сдаче инструмента *(«После» использования)*:",
+        "Отлично! Теперь отправь фото при возврате *(«После» использования)*:",
         reply_markup=back_btn(),
         parse_mode="HTML"
     )
 
+
 @router.message(GarageToolForm.waiting_photo_after, F.photo, F.chat.type == "private")
 async def tool_get_photo_after(message: Message, state: FSMContext):
-    photo_after_id = message.photo[-1].file_id
     data = await state.get_data()
     req_id = data.get("current_tool_req_id")
-    photo_before_id = data.get("photo_before_id")
     await state.clear()
-
     await message.answer(
-        f"✅ <b>Фотофиксация по заявке #{req_id} успешно сохранена!</b>\n"
-        "Обе фотографии («До» и «После») зафиксированы в системе для предотвращения споров. Барсик спокоен! 🐾",
+        f"✅ <b>Фотофиксация по заявке #{req_id} успешно сохранена!</b> Барсик спокоен! 🐾",
         reply_markup=main_reply_menu(),
         parse_mode="HTML"
     )
 
 
-# Закрытие заявки автором
 @router.callback_query(F.data.startswith("close_req_"))
 async def callback_close_request(callback: CallbackQuery, bot: Bot):
     req_id = int(callback.data.replace("close_req_", ""))
     req_data = get_request_by_id(req_id)
 
-    if not req_data:
-        await callback.answer("⚠️ Заявка не найдена!", show_alert=True)
+    if not req_data or req_data[0] != callback.from_user.id:
+        await callback.answer("⚠️ Ошибка доступа!", show_alert=True)
         return
 
     owner_id, section_name, what, where_field, when_field, photo_id, status, post_id = req_data
-
-    if owner_id != callback.from_user.id:
-        await callback.answer("⚠️ Это не твоя заявка!", show_alert=True)
-        return
-
-    reverse_map = {
-        "Живая опора": "chan_help",
-        "Общаг/Базар": "chan_bazar",
-        "Общий Гараж": "chan_garage",
-        "Остатки": "chan_ostatki"
-    }
+    reverse_map = {"Живая опора": "chan_help", "Общаг/Базар": "chan_bazar", "Общий Гараж": "chan_garage", "Остатки": "chan_ostatki"}
     clean_sec = section_name
     for prefix in ["🤝 ", "📦 ", "🛠 ", "♻️ "]:
         clean_sec = clean_sec.replace(prefix, "")
-    sec_key = reverse_map.get(clean_sec, "chan_help")
-    chan_username = CHANNELS.get(sec_key, "@asar_hq")
+    chan_username = CHANNELS.get(reverse_map.get(clean_sec, "chan_help"), "@asar_hq")
 
     if post_id:
         try:
             await bot.delete_message(chat_id=chan_username, message_id=post_id)
         except Exception:
-            try:
-                closed_caption = f"📁 <b>[ЗАКРЫТО / ИСПОЛНЕНО]</b>\n\n<s>{section_name}\n\n❓ Что: {what}\n📍 Где: {where_field}\n🕐 Когда: {when_field}</s>"
-                await bot.edit_message_caption(chat_id=chan_username, message_id=post_id, caption=closed_caption, parse_mode="HTML", reply_markup=None)
-            except Exception:
-                pass
+            pass
 
     update_request_status(req_id, "closed", post_id)
-    await callback.answer("✅ Заявка успешно закрыта и удалена из канала!", show_alert=True)
-
+    await callback.answer("✅ Заявка закрыта!", show_alert=True)
     try:
         await callback.message.delete()
     except Exception:
         pass
-    await callback.message.answer("✅ Твоя заявка переведена в статус закрытых.", reply_markup=main_reply_menu())
+    await callback.message.answer("✅ Твоя заявка закрыта.", reply_markup=main_reply_menu())
 
+
+# ─── Настройка профиля ─────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "edit_profile")
 async def edit_profile_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(ProfileForm.waiting_role)
-    await callback.message.answer(
-        "🏷 <b>Кто ты в экосистеме Asar?</b>\n"
-        "Напиши свою роль или профессию коротко (например: <i>Строитель, Электрик, Разнорабочий, Волонтер</i>):",
-        reply_markup=back_btn(),
-        parse_mode="HTML"
-    )
+    await callback.message.answer("🏷 <b>Какая твоя роль или профессия?</b> (например: <i>Электрик, Строитель</i>):", reply_markup=back_btn(), parse_mode="HTML")
+
 
 @router.message(ProfileForm.waiting_role, F.chat.type == "private")
 async def profile_get_role(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("⚠️ Пожалуйста, отправь текстом свою роль.", reply_markup=back_btn())
+    if not message.text or message.text.startswith("/"):
+        await message.answer("⚠️ Введи текстом свою роль.", reply_markup=back_btn())
         return
-    if message.text.startswith("/"):
-        await message.answer("⚠️ Сначала заполни роль или нажми отмену.", reply_markup=back_btn())
-        return
-
     await state.update_data(profile_role=message.text)
     await state.set_state(ProfileForm.waiting_bio)
-    await message.answer(
-        "📝 <b>Отлично! А теперь напиши пару слов о себе</b> (чем можешь помочь, какой инструмент есть или что строишь):",
-        reply_markup=back_btn(),
-        parse_mode="HTML"
-    )
+    await message.answer("📝 <b>Напиши пару слов о себе</b> (чем можешь помочь):", reply_markup=back_btn(), parse_mode="HTML")
+
 
 @router.message(ProfileForm.waiting_bio, F.chat.type == "private")
 async def profile_get_bio(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("⚠️ Отправь описание текстом.", reply_markup=back_btn())
+    if not message.text or message.text.startswith("/"):
+        await message.answer("⚠️ Введи описание текстом.", reply_markup=back_btn())
         return
-    if message.text.startswith("/"):
-        await message.answer("⚠️ Заверши заполнение профиля или нажми отмену.", reply_markup=back_btn())
-        return
-
     data = await state.get_data()
-    role = data.get("profile_role", "Участник")
-    bio = message.text
+    update_user_full_profile(message.from_user.id, data.get("profile_role", "Участник"), message.text)
     await state.clear()
+    await message.answer("✅ <b>Профиль успешно обновлен!</b>", reply_markup=main_reply_menu(), parse_mode="HTML")
 
-    update_user_full_profile(message.from_user.id, role, bio)
 
-    await message.answer(
-        "✅ <b>Твой профиль успешно обновлен!</b> Теперь соседи видят, кто ты и чем силен.",
-        reply_markup=main_reply_menu(),
-        parse_mode="HTML"
-    )
-
+# ─── Подача заявок ─────────────────────────────────────────────────────────────
 
 @router.message(F.text.in_(["🤝 Живая опора", "📦 Общаг/Базар", "🛠 Общий Гараж", "♻️ Остатки"]), F.chat.type == "private")
 async def section_text_selected(message: Message, state: FSMContext):
-    section_title = message.text
-    key = SECTION_KEYS_MAP.get(section_title)
-
+    key = SECTION_KEYS_MAP.get(message.text)
     await state.set_state(Form.waiting_what)
-    await state.update_data(section_key=key, section_name=section_title)
+    await state.update_data(section_key=key, section_name=message.text)
+    await message.answer(f"📂 <b>{message.text}</b>\n\n{SECTION_QUESTIONS[key][0]}", reply_markup=back_btn(), parse_mode="HTML")
 
-    q_what = SECTION_QUESTIONS[key][0]
-    await message.answer(
-        f"📂 <b>{section_title}</b>\n\n{q_what}",
-        reply_markup=back_btn(),
-        parse_mode="HTML"
-    )
-
-
-# ─── Пошаговые заявки ──────────────────────────────────────────────────────────
 
 @router.message(Form.waiting_what, F.chat.type == "private")
 async def step_what(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("⚠️ Нужно отправить текстовое описание!", reply_markup=back_btn())
+    if not message.text or message.text.startswith("/"):
+        await message.answer("⚠️ Опиши суть текстом.", reply_markup=back_btn())
         return
-    if message.text.startswith("/"):
-        await message.answer("⚠️ Заполни текущий пункт или нажми отмену.", reply_markup=back_btn())
-        return
-
     await state.update_data(what=message.text)
     data = await state.get_data()
-    q_where = SECTION_QUESTIONS[data["section_key"]][1]
     await state.set_state(Form.waiting_where)
-    await message.answer(q_where, reply_markup=where_kb(), parse_mode="HTML")
+    await message.answer(SECTION_QUESTIONS[data["section_key"]][1], reply_markup=where_kb(), parse_mode="HTML")
 
 
 @router.message(Form.waiting_where, F.location, F.chat.type == "private")
 async def step_where_location(message: Message, state: FSMContext):
-    geo_text = f"📍 Геолокация: [Координаты: {message.location.latitude}, {message.location.longitude}]"
-    await state.update_data(where=geo_text)
+    await state.update_data(where=f"📍 Геолокация: [{message.location.latitude}, {message.location.longitude}]")
     data = await state.get_data()
-    q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+    await message.answer(SECTION_QUESTIONS[data["section_key"]][2], reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
 
 
 @router.message(Form.waiting_where, F.chat.type == "private")
@@ -601,52 +529,34 @@ async def step_where(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Главное меню:", reply_markup=main_reply_menu())
         return
-    if not message.text:
-        await message.answer("⚠️ Напиши текстом район или отправь геолокацию через кнопку ниже.", reply_markup=where_kb())
+    if not message.text or message.text.startswith("/"):
+        await message.answer("⚠️ Укажи район текстом или отправь геолокацию.", reply_markup=where_kb())
         return
-    if message.text.startswith("/"):
-        await message.answer("⚠️ Заверши заполнение или отмени действие.", reply_markup=back_btn())
-        return
-
     await state.update_data(where=message.text)
     data = await state.get_data()
-    q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+    await message.answer(SECTION_QUESTIONS[data["section_key"]][2], reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
 
 
 @router.message(Form.waiting_when, F.chat.type == "private")
 async def step_when(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("⚠️ Укажи сроки или время текстом.", reply_markup=back_btn())
+    if not message.text or message.text.startswith("/"):
+        await message.answer("⚠️ Укажи сроки текстом.", reply_markup=back_btn())
         return
-    if message.text.startswith("/"):
-        await message.answer("⚠️ Укажи время или нажми отмену.", reply_markup=back_btn())
-        return
-
     await state.update_data(when=message.text)
     await state.set_state(Form.waiting_photo)
-    await message.answer(
-        "📸 <b>Закинь фото</b> (по желанию) или жми кнопку ниже:",
-        reply_markup=skip_photo_btn(),
-        parse_mode="HTML"
-    )
+    await message.answer("📸 <b>Закинь фото</b> (по желанию) или жми кнопку ниже:", reply_markup=skip_photo_btn(), parse_mode="HTML")
 
 
 @router.message(Form.waiting_photo, F.photo, F.chat.type == "private")
 async def step_photo(message: Message, state: FSMContext, bot: Bot):
-    photo_id = message.photo[-1].file_id
-    await state.update_data(photo_id=photo_id)
+    await state.update_data(photo_id=message.photo[-1].file_id)
     await finish_request(message, state, bot)
 
 
 @router.message(Form.waiting_photo, ~F.photo, F.chat.type == "private")
 async def step_photo_invalid(message: Message):
-    await message.answer(
-        "⚠️ Отправь фото картинкой или нажми «Пропустить фото».",
-        reply_markup=skip_photo_btn(),
-        parse_mode="HTML"
-    )
+    await message.answer("⚠️ Отправь фото или нажми «Пропустить фото».", reply_markup=skip_photo_btn(), parse_mode="HTML")
 
 
 @router.callback_query(StateFilter(Form.waiting_photo), F.data == "skip_photo")
@@ -660,48 +570,32 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     data = await state.get_data()
     await state.clear()
 
-    section_key  = data.get("section_key", "chan_help")
+    section_key = data.get("section_key", "chan_help")
     section_name = data.get("section_name", "Раздел")
-    what         = data.get("what", "—")
-    where        = data.get("where", "—")
-    when         = data.get("when", "—")
-    photo_id     = data.get("photo_id")
+    what = data.get("what", "—")
+    where = data.get("where", "—")
+    when = data.get("when", "—")
+    photo_id = data.get("photo_id")
 
-    if user:
-        user_id   = user.id
-        full_name = user.full_name
-        username  = user.username
-    else:
-        user_id   = message.chat.id
-        full_name = message.chat.full_name or ""
-        username  = message.chat.username or ""
+    user_id = user.id if user else message.chat.id
+    full_name = user.full_name if user else (message.chat.full_name or "")
+    username = user.username if user else (message.chat.username or "")
 
     req_id = add_request(user_id, section_name, what, where, when, photo_id)
     chan_username = CHANNELS.get(section_key, "@asar_hq")
 
     await message.answer(
-        "✅ <b>Заявка принята!</b> Модератор скоро проверит её.\n\n"
-        f"<blockquote><b>📂 {section_name}</b>\n"
-        f"❓ <b>Что:</b> {what}\n"
-        f"📍 <b>Где:</b> {where}\n"
-        f"🕐 <b>Когда:</b> {when}</blockquote>",
+        "✅ <b>Заявка принята на модерацию!</b>\n\n"
+        f"<blockquote><b>📂 {section_name}</b>\n❓ Что: {what}\n📍 Где: {where}\n🕐 Когда: {when}</blockquote>",
         parse_mode="HTML",
         reply_markup=main_reply_menu()
     )
 
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Одобрить",  callback_data=f"mod_yes_{req_id}_{section_key}"),
+        [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"mod_yes_{req_id}_{section_key}"),
          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"mod_no_{req_id}_{section_key}")]
     ])
-
-    caption = (
-        f"🔔 <b>Новая заявка #{req_id}</b>\n"
-        f"👤 {full_name} (@{username})  →  {chan_username}\n\n"
-        f"<blockquote>📂 <b>{section_name}</b>\n"
-        f"❓ <b>Что:</b> {what}\n"
-        f"📍 <b>Где:</b> {where}\n"
-        f"🕐 <b>Когда:</b> {when}</blockquote>"
-    )
+    caption = f"🔔 <b>Новая заявка #{req_id}</b>\n👤 {full_name} (@{username}) → {chan_username}\n\n<blockquote>📂 <b>{section_name}</b>\n❓ Что: {what}\n📍 Где: {where}\n🕐 Когда: {when}</blockquote>"
 
     if photo_id:
         await bot.send_photo(ADMIN_ID, photo=photo_id, caption=caption, reply_markup=admin_kb, parse_mode="HTML")
@@ -709,91 +603,65 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         await bot.send_message(ADMIN_ID, caption, reply_markup=admin_kb, parse_mode="HTML")
 
 
-# ─── Модерация заявок ──────────────────────────────────────────────────────────
+# ─── Модерация ─────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("mod_"))
 async def moderate_action(callback: CallbackQuery, bot: Bot):
     await callback.answer("Обработка заявки...")
-    parts       = callback.data.split("_")
-    action      = parts[1]
-    req_id      = int(parts[2])
+    parts = callback.data.split("_")
+    action = parts[1]
+    req_id = int(parts[2])
     section_key = "_".join(parts[3:]) if len(parts) > 3 else "chan_help"
 
     if action == "yes":
-        chan_username = CHANNELS.get(section_key, "@asar_hq")
         req_data = get_request_by_id(req_id)
         if not req_data:
-            await callback.message.answer("⚠️ Ошибка: заявка не найдена в базе!")
             return
 
-        user_id      = req_data[0]
-        section_name = req_data[1]
-        what         = req_data[2]
-        where_field  = req_data[3]
-        when_field   = req_data[4]
-        photo_id     = req_data[5]
+        user_id, section_name, what, where_field, when_field, photo_id, status, post_id = req_data
+        chan_username = CHANNELS.get(section_key, "@asar_hq")
 
-        channel_text = (
-            f"🤝 <b>{section_name}</b>\n\n"
-            f"<blockquote>"
-            f"❓ <b>Что:</b> {what}\n"
-            f"📍 <b>Где:</b> {where_field}\n"
-            f"🕐 <b>Когда:</b> {when_field}"
-            f"</blockquote>"
-        )
-
+        channel_text = f"🤝 <b>{section_name}</b>\n\n<blockquote>❓ <b>Что:</b> {what}\n📍 <b>Где:</b> {where_field}\n🕐 <b>Когда:</b> {when_field}</blockquote>"
         bot_info = await bot.get_me()
-        bot_username = bot_info.username
 
         chan_kb = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="👤 Профиль", url=f"https://t.me/{bot_username}?start=profile_{user_id}"),
-                InlineKeyboardButton(text="💬 Откликнуться", url=f"https://t.me/{bot_username}?start=respond_{req_id}")
+                InlineKeyboardButton(text="👤 Профиль", url=f"https://t.me/{bot_info.username}?start=profile_{user_id}"),
+                InlineKeyboardButton(text="💬 Откликнуться", url=f"https://t.me/{bot_info.username}?start=respond_{req_id}")
             ]
         ])
 
         sent_post_id = None
         try:
             if photo_id:
-                msg_in_chan = await bot.send_photo(chat_id=chan_username, photo=photo_id, caption=channel_text, reply_markup=chan_kb, parse_mode="HTML")
+                msg = await bot.send_photo(chat_id=chan_username, photo=photo_id, caption=channel_text, reply_markup=chan_kb, parse_mode="HTML")
             else:
-                msg_in_chan = await bot.send_message(chat_id=chan_username, text=channel_text, reply_markup=chan_kb, parse_mode="HTML")
-            sent_post_id = msg_in_chan.message_id
-        except Exception as e:
-            print(f"Не удалось отправить в канал: {e}")
+                msg = await bot.send_message(chat_id=chan_username, text=channel_text, reply_markup=chan_kb, parse_mode="HTML")
+            sent_post_id = msg.message_id
+        except Exception:
+            pass
 
         update_request_status(req_id, "published", sent_post_id)
         update_balance(user_id, 1)
 
         try:
             await callback.message.delete()
-        except Exception:
-            pass
-
-        try:
-            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале! Вам начислено 🪙 <b>+1 баурсак</b>. 🐾 *Барсик доволен!*", parse_mode="HTML")
+            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена! Начислено 🪙 <b>+1 баурсак</b>. 🐾 *Барсик доволен!*", parse_mode="HTML")
         except Exception:
             pass
 
     elif action == "no":
         req_data = get_request_by_id(req_id)
-        user_id = req_data[0] if req_data else None
-
         update_request_status(req_id, "rejected", None)
-
         try:
             await callback.message.delete()
+            if req_data:
+                await bot.send_message(req_data[0], f"❌ К сожалению, твоя заявка #{req_id} отклонена.")
         except Exception:
             pass
 
-        if user_id:
-            try:
-                await bot.send_message(user_id, f"❌ К сожалению, твоя заявка #{req_id} не прошла модерацию.")
-            except Exception:
-                pass
 
-
-# ─── Админские команды ──────────────────────────────────────────────────────────
+# ─── Админские команды ─────────────────────────────────────────────────────────
 
 @router.message(Command("give"), F.from_user.id == ADMIN_ID)
 async def admin_give_currency(message: Message):
@@ -801,14 +669,8 @@ async def admin_give_currency(message: Message):
     if len(parts) != 3:
         await message.answer("⚠️ Формат: <code>/give [user_id] [сумма]</code>", parse_mode="HTML")
         return
-    try:
-        target_id, amount = int(parts[1]), int(parts[2])
-    except ValueError:
-        await message.answer("⚠️ ID и сумма должны быть числами!")
-        return
-
-    update_balance(target_id, amount)
-    await message.answer(f"✅ Начислено {amount} баурсаков пользователю <code>{target_id}</code>!", parse_mode="HTML")
+    update_balance(int(parts[1]), int(parts[2]))
+    await message.answer(f"✅ Начислено {parts[2]} баурсаков пользователю <code>{parts[1]}</code>!", parse_mode="HTML")
 
 
 @router.message(Command("take"), F.from_user.id == ADMIN_ID)
@@ -817,31 +679,21 @@ async def admin_take_currency(message: Message):
     if len(parts) != 3:
         await message.answer("⚠️ Формат: <code>/take [user_id] [сумма]</code>", parse_mode="HTML")
         return
-    try:
-        target_id, amount = int(parts[1]), int(parts[2])
-    except ValueError:
-        await message.answer("⚠️ ID и сумма должны быть числами!")
-        return
-
-    update_balance(target_id, -amount)
-    await message.answer(f"✅ Списано {amount} баурсаков у пользователя <code>{target_id}</code>!", parse_mode="HTML")
+    update_balance(int(parts[1]), -int(parts[2]))
+    await message.answer(f"✅ Списано {parts[2]} баурсаков у пользователя <code>{parts[1]}</code>!", parse_mode="HTML")
 
 
 @router.callback_query(F.data == "menu_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer(
-        "🟢 <b>Главное меню АСАР:</b>",
-        reply_markup=main_reply_menu(),
-        parse_mode="HTML"
-    )
+    await callback.message.answer("🟢 <b>Главное меню АСАР:</b>", reply_markup=main_reply_menu(), parse_mode="HTML")
     try:
         await callback.message.delete()
     except Exception:
         pass
 
 
-# ─── Запуск ─────────────────────────────────────────────────────────────────────
+# ─── Запуск сервера ────────────────────────────────────────────────────────────
 
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
@@ -851,7 +703,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     init_db()
     bot = Bot(token=BOT_TOKEN)
-    dp  = Dispatcher()
+    dp = Dispatcher()
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
 
@@ -859,11 +711,10 @@ async def main():
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, '0.0.0.0', port)
+    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000)))
     await site.start()
 
-    print("🚀 Бот АСАР успешно запущен со всеми обновлениями (фотофиксация гаража, Барсик и экосистема)!")
+    print("🚀 Бот АСАР успешно запущен со всеми обновлениями!")
     await dp.start_polling(bot)
 
 
