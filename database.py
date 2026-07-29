@@ -244,4 +244,4 @@ def add_review(target_user_id: int, from_user_id: int, rating: int, comment: str
         VALUES (?, ?, ?, ?)
     """, (target_user_id, from_user_id, rating, comment))
     conn.commit()
-    conn.close()
+    conn.close() 
