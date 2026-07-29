@@ -517,11 +517,22 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             await callback.message.answer("⚠️ Ошибка: заявка не найдена в базе!")
             return
 
-        user_id, section_name, what, photo_id = req_data[0], req_data[1], req_data[2], req_data[5]
+        # Достаем все поля из базы: user_id, section, what, where_field, when_field, photo_id
+        user_id      = req_data[0]
+        section_name = req_data[1]
+        what         = req_data[2]
+        where_field  = req_data[3]
+        when_field   = req_data[4]
+        photo_id     = req_data[5]
 
+        # Собираем полноценную карточку заявки для канала
         channel_text = (
             f"🤝 <b>{section_name}</b>\n\n"
-            f"<blockquote>{what}</blockquote>"
+            f"<blockquote>"
+            f"❓ <b>Что:</b> {what}\n"
+            f"📍 <b>Где:</b> {where_field}\n"
+            f"🕐 <b>Когда:</b> {when_field}"
+            f"</blockquote>"
         )
 
         # Добавляем кнопку "Профиль автора" к посту в канале / чате обсуждений
