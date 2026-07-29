@@ -6,24 +6,19 @@ DB = "asar_bot.db"
 def init_db():
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id      INTEGER PRIMARY KEY,
             username     TEXT,
             full_name    TEXT,
             bauyrsaklar  INTEGER DEFAULT 3,
-            accepted     INTEGER DEFAULT 0
+            accepted     INTEGER DEFAULT 0,
+            role         TEXT,
+            bio          TEXT
         )
     """)
-    # Миграции: добавить колонки если их нет (для старых БД)
-    for col, definition in [
-        ("bauyrsaklar", "INTEGER DEFAULT 3"),
-        ("accepted",    "INTEGER DEFAULT 0"),
-    ]:
-        try:
-            cur.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
-        except sqlite3.OperationalError:
-            pass  # Колонка уже существует
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS requests (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,9 +28,27 @@ def init_db():
             where_field  TEXT,
             when_field   TEXT,
             photo_id     TEXT,
-            status       TEXT DEFAULT 'moderation'
+            status       TEXT DEFAULT 'moderation',
+            post_id      INTEGER
         )
     """)
+    
+    # Миграции: добавить колонки если их нет (для старых БД)
+    migrations = [
+        ("users", "bauyrsaklar", "INTEGER DEFAULT 3"),
+        ("users", "accepted", "INTEGER DEFAULT 0"),
+        ("users", "role", "TEXT"),
+        ("users", "bio", "TEXT"),
+        ("requests", "post_id", "INTEGER"),
+        ("requests", "status", "TEXT DEFAULT 'moderation'")
+    ]
+    
+    for table, col, definition in migrations:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
     conn.commit()
     conn.close()
 
@@ -82,39 +95,96 @@ def set_accepted(user_id: int):
     conn.close()
 
 
+def update_user_full_profile(user_id: int, role: str, bio: str):
+    """Обновляет роль и описание пользователя в профиле."""
+    conn = sqlite3.connect(DB)
+    conn.execute("""
+        UPDATE users 
+        SET role = ?, bio = ? 
+        WHERE user_id = ?
+    """, (role, bio, user_id))
+    conn.commit()
+    conn.close()
+
+
 def get_user_profile(user_id):
-    """Возвращает (full_name, username, bauyrsaklar, published_count, total_count)."""
+    """Возвращает (full_name, username, bauyrsaklar, published_count, total_count, role, bio)."""
     conn = sqlite3.connect(DB)
     user = conn.execute(
-        "SELECT full_name, username, bauyrsaklar FROM users WHERE user_id = ?",
+        "SELECT full_name, username, bauyrsaklar, role, bio FROM users WHERE user_id = ?",
         (user_id,)
     ).fetchone()
+    
     published = conn.execute(
         "SELECT COUNT(*) FROM requests WHERE user_id = ? AND status = 'published'",
         (user_id,)
     ).fetchone()[0]
+    
     total = conn.execute(
         "SELECT COUNT(*) FROM requests WHERE user_id = ?",
         (user_id,)
     ).fetchone()[0]
+    
     conn.close()
     if user is None:
         return None
-    return user[0], user[1], user[2] if user[2] is not None else 3, published, total
+        
+    full_name, username, bauyrsaklar, role, bio = user
+    bauyrsaklar = bauyrsaklar if bauyrsaklar is not None else 3
+    return full_name, username, bauyrsaklar, published, total, role, bio
 
 
-def update_request_status(req_id, status):
-    """Обновляет статус и возвращает (user_id, section, what, photo_id)."""
+def get_user_requests_detailed(user_id: int):
+    """Возвращает список заявок пользователя для генерации кнопок в профиле."""
     conn = sqlite3.connect(DB)
-    conn.execute("UPDATE requests SET status = ? WHERE id = ?", (status, req_id))
-    conn.commit()
+    rows = conn.execute("""
+        SELECT id, section, status, post_id, what 
+        FROM requests 
+        WHERE user_id = ? 
+        ORDER BY id DESC
+    """, (user_id,)).fetchall()
+    conn.close()
+    
+    # Сопоставляем русское название раздела с ключом из словаря каналов (SECTION_KEYS_MAP)
+    reverse_map = {
+        "Живая опора": "chan_help",
+        "Общаг/Базар": "chan_bazar",
+        "Общий Гараж": "chan_garage",
+        "Остатки": "chan_ostatki"
+    }
+    
+    result = []
+    for r_id, section_name, status, post_id, what in rows:
+        # Очищаем название раздела от эмодзи для точного маппинга
+        clean_sec = section_name
+        for prefix in ["🤝 ", "📦 ", "🛠 ", "♻️ "]:
+            clean_sec = clean_sec.replace(prefix, "")
+        sec_key = reverse_map.get(clean_sec, "chan_help")
+        result.append((r_id, clean_sec, status, post_id, sec_key))
+        
+    return result
+
+
+def get_request_by_id(req_id: int):
+    """Возвращает данные конкретной заявки."""
+    conn = sqlite3.connect(DB)
     row = conn.execute(
-        "SELECT user_id, section, what, photo_id FROM requests WHERE id = ?", (req_id,)
+        "SELECT user_id, section, what, where_field, when_field, photo_id, status, post_id FROM requests WHERE id = ?", 
+        (req_id,)
     ).fetchone()
     conn.close()
-    if row is None:
-        raise ValueError(f"Request #{req_id} not found")
-    return row[0], row[1], row[2], row[3]
+    return row
+
+
+def update_request_status(req_id: int, status: str, post_id: int = None):
+    """Обновляет статус заявки и сохраняет ID поста в канале."""
+    conn = sqlite3.connect(DB)
+    if post_id:
+        conn.execute("UPDATE requests SET status = ?, post_id = ? WHERE id = ?", (status, post_id, req_id))
+    else:
+        conn.execute("UPDATE requests SET status = ? WHERE id = ?", (status, req_id))
+    conn.commit()
+    conn.close()
 
 
 def update_balance(user_id: int, amount: int):
