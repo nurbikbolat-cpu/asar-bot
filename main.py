@@ -57,11 +57,16 @@ def back_btn():
         [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
     ])
 
+# Клавиатура для отправки реальной геопозиции через системную кнопку Reply
 def where_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📍 Отправить мою геолокацию", callback_data="share_geo")],
-        [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
-    ])
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📍 Отправить мою геолокацию", request_location=True)],
+            [KeyboardButton(text="⬅️ Отмена / Главное меню")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
 
 def skip_photo_btn():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -86,22 +91,22 @@ SECTION_KEYS_MAP = {
 SECTION_QUESTIONS = {
     "chan_help": (
         "🤝 <b>В чем нужна помощь или чем можешь выручить?</b> Опиши суть:",
-        "📍 <b>В каком районе или месте это актуально?</b> (Напиши текстом или отправь геолокацию по желанию):",
+        "📍 <b>В каком районе или месте это актуально?</b> (Напиши текстом или отправь геолокацию через кнопку ниже):",
         "⏱ <b>Когда это нужно или когда удобно помочь?</b>",
     ),
     "chan_bazar": (
         "📦 <b>Что за товар, вещь или совместная закупка?</b> Опиши детально:",
-        "📍 <b>Где забирать или где актуально?</b> (Текст или геолокация по желанию):",
+        "📍 <b>Где забирать или где актуально?</b> (Текст или геолокация через кнопку ниже):",
         "💰 <b>Какая цена, условия или сроки закупки?</b>",
     ),
     "chan_garage": (
         "🛠 <b>Какой инструмент, техника или оборудование нужно / предлагаешь?</b>",
-        "📍 <b>Где находится железо / куда доставить?</b> (Текст или геолокация по желанию):",
+        "📍 <b>Где находится железо / куда доставить?</b> (Текст или геолокация через кнопку ниже):",
         "⏱ <b>На какой срок нужно или когда доступно?</b>",
     ),
     "chan_ostatki": (
         "♻️ <b>Что за материалы или излишки отдаёшь/ищешь?</b> Опиши:",
-        "📍 <b>Где территориально лежат остатки?</b> (Текст или геолокация по желанию):",
+        "📍 <b>Где территориально лежат остатки?</b> (Текст или геолокация через кнопку ниже):",
         "⏱ <b>До какого времени актуально / когда вывоз?</b>",
     ),
 }
@@ -217,7 +222,7 @@ async def btn_profile(message: Message):
     pending = total - published
     role_text = role if role else "<i>Не указана</i>"
     bio_text = bio if bio else "<i>Не указано</i>"
-    
+
     text = (
         f"🐱 <b>Профиль участника</b>\n\n"
         f"👤 <b>Имя:</b> {full_name} ({handle})\n"
@@ -228,14 +233,12 @@ async def btn_profile(message: Message):
         f"👇 <b>Твои заявки (жми, чтобы посмотреть):</b>"
     )
 
-    # Получаем список заявок юзера для инлайн-кнопок
     user_requests = get_user_requests_detailed(user_id)
     inline_buttons = []
 
     for req_id, section_name, status, post_id, sec_key in user_requests:
         if status == "published" and post_id:
             chan_username = CHANNELS.get(sec_key, "asar_help").replace("@", "")
-            # Уникальная ссылка на пост в публичном или приватном канале
             url = f"https://t.me/{chan_username}/{post_id}"
             btn_text = f"✅ #{req_id} ({section_name})"
             inline_buttons.append([InlineKeyboardButton(text=btn_text, url=url)])
@@ -246,9 +249,8 @@ async def btn_profile(message: Message):
             btn_text = f"❌ #{req_id} ({section_name}) [Отклонено]"
             inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"my_req_{req_id}")])
 
-    # Добавляем кнопки управления профилем в самый низ
     inline_buttons.append([InlineKeyboardButton(text="✏️ Настроить профиль (Кто я)", callback_data="edit_profile")])
-    
+
     profile_markup = InlineKeyboardMarkup(inline_keyboard=inline_buttons)
     await message.answer(text, parse_mode="HTML", reply_markup=profile_markup)
 
@@ -313,7 +315,7 @@ async def profile_get_bio(message: Message, state: FSMContext):
 async def section_text_selected(message: Message, state: FSMContext):
     section_title = message.text
     key = SECTION_KEYS_MAP.get(section_title)
-    
+
     await state.set_state(Form.waiting_what)
     await state.update_data(section_key=key, section_name=section_title)
 
@@ -325,7 +327,7 @@ async def section_text_selected(message: Message, state: FSMContext):
     )
 
 
-# ─── Пошаговые заявки (с опциональной геолокацией) ──────────────────────────────
+# ─── Пошаговые заявки (с реальной геолокацией) ──────────────────────────────────
 
 @router.message(Form.waiting_what, F.chat.type == "private")
 async def step_what(message: Message, state: FSMContext):
@@ -340,9 +342,11 @@ async def step_what(message: Message, state: FSMContext):
     data = await state.get_data()
     q_where = SECTION_QUESTIONS[data["section_key"]][1]
     await state.set_state(Form.waiting_where)
+    # Выдаем клавиатуру с кнопкой запроса гео и кнопкой отмены
     await message.answer(q_where, reply_markup=where_kb(), parse_mode="HTML")
 
 
+# Обработка нажатия на кнопку "Отправить мою геолокацию" (реальные координаты)
 @router.message(Form.waiting_where, F.location, F.chat.type == "private")
 async def step_where_location(message: Message, state: FSMContext):
     geo_text = f"📍 Геолокация: [Координаты: {message.location.latitude}, {message.location.longitude}]"
@@ -350,13 +354,19 @@ async def step_where_location(message: Message, state: FSMContext):
     data = await state.get_data()
     q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    await message.answer(q_when, reply_markup=back_btn(), parse_mode="HTML")
+    # Возвращаем обычную разметку без клавиатуры гео (убираем ReplyKeyboardRemove, чтобы вернуть нормальный ввод времени)
+    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
 
 
+# Обработка ввода района текстом или кнопки отмены на шаге где
 @router.message(Form.waiting_where, F.chat.type == "private")
 async def step_where(message: Message, state: FSMContext):
+    if message.text == "⬅️ Отмена / Главное меню":
+        await state.clear()
+        await message.answer("Главное меню:", reply_markup=main_reply_menu())
+        return
     if not message.text:
-        await message.answer("⚠️ Напиши текстом или отправь геолокацию.", reply_markup=where_kb())
+        await message.answer("⚠️ Напиши текстом район или отправь геолокацию через кнопку ниже.", reply_markup=where_kb())
         return
     if message.text.startswith("/"):
         await message.answer("⚠️ Заверши заполнение или отмени действие.", reply_markup=back_btn())
@@ -366,12 +376,7 @@ async def step_where(message: Message, state: FSMContext):
     data = await state.get_data()
     q_when = SECTION_QUESTIONS[data["section_key"]][2]
     await state.set_state(Form.waiting_when)
-    await message.answer(q_when, reply_markup=back_btn(), parse_mode="HTML")
-
-
-@router.callback_query(StateFilter(Form.waiting_where), F.data == "share_geo")
-async def callback_share_geo(callback: CallbackQuery):
-    await callback.answer("Отправь гео через скрепку (📎 -> Геопозиция) в чате, либо просто напиши район текстом.")
+    await message.answer(q_when, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
 
 
 @router.message(Form.waiting_when, F.chat.type == "private")
@@ -468,7 +473,7 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         await bot.send_message(ADMIN_ID, caption, reply_markup=admin_kb, parse_mode="HTML")
 
 
-# ─── Модерация заявок (с фиксацией ID поста для профиля) ────────────────────────
+# ─── Модерация заявок ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("mod_"))
 async def moderate_action(callback: CallbackQuery, bot: Bot):
@@ -485,7 +490,7 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         if not req_data:
             await callback.message.answer("⚠️ Ошибка: заявка не найдена в базе!")
             return
-        
+
         user_id, section_name, what, photo_id = req_data[0], req_data[1], req_data[2], req_data[5]
 
         channel_text = (
