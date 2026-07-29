@@ -134,6 +134,22 @@ def get_user_profile(user_id):
     return full_name, username, bauyrsaklar, published, total, role, bio
 
 
+# Добавленная функция для просмотра профиля по ID
+def get_user_profile_by_id(user_id: int):
+    """Возвращает (full_name, username, bauyrsaklar, role, bio) для просмотра другим участником."""
+    conn = sqlite3.connect(DB)
+    row = conn.execute(
+        "SELECT full_name, username, bauyrsaklar, role, bio FROM users WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    full_name, username, bauyrsaklar, role, bio = row
+    bauyrsaklar = bauyrsaklar if bauyrsaklar is not None else 3
+    return full_name, username, bauyrsaklar, role, bio
+
+
 def get_user_requests_detailed(user_id: int):
     """Возвращает список заявок пользователя для генерации кнопок в профиле."""
     conn = sqlite3.connect(DB)
