@@ -1,4 +1,5 @@
 import sqlite3
+
 DB = "asar_bot.db"
 
 
@@ -40,6 +41,18 @@ def init_db():
             from_user_id INTEGER,
             rating       INTEGER, -- +1 или -1
             comment      TEXT
+        )
+    """)
+
+    # Таблица для фотофиксации гаража («До / После»)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS garage_tools (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            req_id           INTEGER,
+            user_id          INTEGER,
+            photo_before_id  TEXT,
+            photo_after_id   TEXT,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -135,7 +148,6 @@ def get_user_profile(user_id):
         (user_id,)
     ).fetchone()[0]
 
-    # Подсчет кармы (суммы оценок из отзывов)
     karma_res = conn.execute(
         "SELECT SUM(rating) FROM reviews WHERE target_user_id = ?",
         (user_id,)
@@ -244,4 +256,42 @@ def add_review(target_user_id: int, from_user_id: int, rating: int, comment: str
         VALUES (?, ?, ?, ?)
     """, (target_user_id, from_user_id, rating, comment))
     conn.commit()
-    conn.close() 
+    conn.close()
+
+
+# Функции для фотофиксации «До / После» в гараже
+def add_garage_tool_session(req_id: int, user_id: int, photo_before_id: str):
+    """Создает запись сессии инструмента с фото 'До'."""
+    conn = sqlite3.connect(DB)
+    cur = conn.execute("""
+        INSERT INTO garage_tools (req_id, user_id, photo_before_id)
+        VALUES (?, ?, ?)
+    """, (req_id, user_id, photo_before_id))
+    session_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return session_id
+
+
+def update_garage_tool_after(req_id: int, photo_after_id: str):
+    """Добавляет фото 'После' к существующей заявке/сессии гаража."""
+    conn = sqlite3.connect(DB)
+    conn.execute("""
+        UPDATE garage_tools 
+        SET photo_after_id = ? 
+        WHERE req_id = ?
+    """, (photo_after_id, req_id))
+    conn.commit()
+    conn.close()
+
+
+def get_garage_tool_session(req_id: int):
+    """Получает данные фотофиксации 'До / После' по ID заявки."""
+    conn = sqlite3.connect(DB)
+    row = conn.execute("""
+        SELECT req_id, user_id, photo_before_id, photo_after_id 
+        FROM garage_tools 
+        WHERE req_id = ?
+    """, (req_id,)).fetchone()
+    conn.close()
+    return row
