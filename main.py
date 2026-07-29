@@ -16,7 +16,8 @@ from config import BOT_TOKEN, CHANNELS
 from database import (
     init_db, save_user, add_request, update_request_status,
     get_user_profile, has_accepted, set_accepted, update_balance,
-    get_user_requests_detailed, update_user_full_profile, get_user_profile_by_id
+    get_user_requests_detailed, update_user_full_profile, get_user_profile_by_id,
+    get_request_by_id, add_review
 )
 
 # Твой ID администратора
@@ -36,6 +37,9 @@ class Form(StatesGroup):
 class ProfileForm(StatesGroup):
     waiting_role = State()
     waiting_bio  = State()
+
+class ReviewForm(StatesGroup):
+    waiting_comment = State()
 
 
 # ─── Нижняя клавиатура ──────────────────────────────────────────────────────────
@@ -111,7 +115,7 @@ SECTION_QUESTIONS = {
 }
 
 
-# ─── /start и Юр. соглашение ────────────────────────────────────────────────────
+# ─── /start и Уведомления ──────────────────────────────────────────────────────
 
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
@@ -153,28 +157,80 @@ def legal_kb():
 @router.message(CommandStart(), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    
-    # Обработка перехода по ссылке профиля (например: /start profile_1310962889)
     args = message.text.split()
+
+    # Обработка отклика на заявку через бота: /start respond_{req_id}
+    if len(args) > 1 and args[1].startswith("respond_"):
+        try:
+            req_id = int(args[1].replace("respond_", ""))
+            req_data = get_request_by_id(req_id)
+            if req_data:
+                owner_id, section, what, where_field, when_field, photo_id, status, post_id = req_data
+                if owner_id == message.from_user.id:
+                    await message.answer("⚠️ Это твоя собственная заявка!")
+                else:
+                    responder = message.from_user
+                    resp_name = responder.full_name
+                    resp_handle = f"@{responder.username}" if responder.username else f"ID: {responder.id}"
+                    
+                    # Отправляем уведомление автору заявки с кнопкой связи с откликнувшимся
+                    contact_kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="💬 Написать участнику", url=f"t.me/{responder.username}" if responder.username else f"tg://user?id={responder.id}")]
+                    ])
+                    try:
+                        await message.bot.send_message(
+                            owner_id,
+                            f"⚡️ <b>К твоей заявке #{req_id} ({section}) есть отклик!</b>\n\n"
+                            f"👤 Участник: <b>{resp_name}</b> ({resp_handle})\n"
+                            f"❓ Суть: <i>{what}</i>",
+                            reply_markup=contact_kb,
+                            parse_mode="HTML"
+                        )
+                        await message.answer(
+                            "✅ <b>Отклик успешно отправлен автору заявки!</b>\n"
+                            "Он получил твои контакты и скоро свяжется с тобой в личке.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        await message.answer("⚠️ Не удалось отправить отклик автору (возможно, у него заблокирован бот).")
+            else:
+                await message.answer("⚠️ Заявка не найдена или была удалена.")
+        except ValueError:
+            pass
+        return
+
+    # Обработка перехода по ссылке профиля: /start profile_{user_id}
     if len(args) > 1 and args[1].startswith("profile_"):
         try:
             target_user_id = int(args[1].replace("profile_", ""))
             profile = get_user_profile_by_id(target_user_id)
-            
+
             if profile:
-                full_name, username, bauyrsaklar, role, bio = profile
+                full_name, username, bauyrsaklar, role, bio, karma = profile
                 handle = f"@{username}" if username else "—"
                 role_text = role if role else "<i>Не указана</i>"
                 bio_text = bio if bio else "<i>Не указано</i>"
+                karma_str = f"+{karma}" if karma > 0 else str(karma)
 
                 card_text = (
                     f"👤 <b>Профиль участника Asar</b>\n\n"
                     f"🏷 <b>Имя:</b> {full_name} ({handle})\n"
                     f"🛠 <b>Роль / Профессия:</b> {role_text}\n"
                     f"📝 <b>О себе:</b> {bio_text}\n\n"
-                    f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>"
+                    f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
+                    f"⭐ <b>Карма / Отзывы:</b> <code>{karma_str}</code>"
                 )
-                await message.answer(card_text, parse_mode="HTML")
+                
+                # Кнопки кармы для других пользователей (если это не свой профиль)
+                card_kb = None
+                if target_user_id != message.from_user.id:
+                    card_kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="👍 Плюс в карму", callback_data=f"karma_up_{target_user_id}"),
+                            InlineKeyboardButton(text="👎 Минус в карму", callback_data=f"karma_down_{target_user_id}")
+                        ]
+                    ])
+                await message.answer(card_text, parse_mode="HTML", reply_markup=card_kb)
         except ValueError:
             pass
 
@@ -218,7 +274,50 @@ async def process_legal_acceptance(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ─── Обработка кнопок нижнего меню ──────────────────────────────────────────────
+# ─── Обработка системы кармы и отзывов ──────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("karma_up_") | F.data.startswith("karma_down_"))
+async def process_karma_button(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    action = parts[1]  # up или down
+    target_id = int(parts[2])
+
+    if target_id == callback.from_user.id:
+        await callback.answer("⚠️ Нельзя ставить оценку самому себе!", show_alert=True)
+        return
+
+    rating = 1 if action == "up" else -1
+    await state.update_data(karma_target_id=target_id, karma_rating=rating)
+    await state.set_state(ReviewForm.waiting_comment)
+
+    await callback.answer()
+    await callback.message.answer(
+        "✍️ Напиши короткий комментарий или пояснение к оценке (почему ставишь плюс/минус):",
+        reply_markup=back_btn()
+    )
+
+
+@router.message(ReviewForm.waiting_comment, F.chat.type == "private")
+async def process_karma_comment(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("⚠️ Пожалуйста, отправь комментарий текстом.")
+        return
+
+    data = await state.get_data()
+    target_id = data.get("karma_target_id")
+    rating = data.get("karma_rating")
+    comment = message.text
+    await state.clear()
+
+    add_review(target_id, message.from_user.id, rating, comment)
+    await message.answer(
+        "✅ <b>Спасибо! Твой отзыв и оценка учтены в карме участника.</b>",
+        reply_markup=main_reply_menu(),
+        parse_mode="HTML"
+    )
+
+
+# ─── Нижнее меню и профиль ──────────────────────────────────────────────────────
 
 @router.message(F.text == "🏢 Весь Штаб (Каналы)", F.chat.type == "private")
 async def btn_channels(message: Message):
@@ -241,11 +340,12 @@ async def btn_profile(message: Message):
         await message.answer(text, parse_mode="HTML", reply_markup=profile_kb())
         return
 
-    full_name, username, bauyrsaklar, published, total, role, bio = profile
+    full_name, username, bauyrsaklar, published, total, role, bio, karma = profile
     handle = f"@{username}" if username else "—"
     pending = total - published
     role_text = role if role else "<i>Не указана</i>"
     bio_text = bio if bio else "<i>Не указано</i>"
+    karma_str = f"+{karma}" if karma > 0 else str(karma)
 
     text = (
         f"🐱 <b>Профиль участника</b>\n\n"
@@ -253,21 +353,24 @@ async def btn_profile(message: Message):
         f"🏷 <b>Роль / Профессия:</b> {role_text}\n"
         f"📝 <b>О себе:</b> {bio_text}\n\n"
         f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
+        f"⭐ <b>Карма:</b> <code>{karma_str}</code>\n"
         f"✅ <b>Опубликовано:</b> {published} | 📋 <b>Всего:</b> {total} (на модерации: {pending})\n\n"
-        f"👇 <b>Твои заявки (жми, чтобы посмотреть):</b>"
+        f"👇 <b>Твои заявки (жми для управления):</b>"
     )
 
     user_requests = get_user_requests_detailed(user_id)
     inline_buttons = []
 
     for req_id, section_name, status, post_id, sec_key in user_requests:
-        if status == "published" and post_id:
-            chan_username = CHANNELS.get(sec_key, "asar_help").replace("@", "")
-            url = f"https://t.me/{chan_username}/{post_id}"
-            btn_text = f"✅ #{req_id} ({section_name})"
-            inline_buttons.append([InlineKeyboardButton(text=btn_text, url=url)])
-        elif status == "pending":
+        if status == "published":
+            # Кнопка для управления опубликованной заявкой (можно закрыть)
+            btn_text = f"✅ #{req_id} ({section_name}) [Закрыть]"
+            inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"close_req_{req_id}")])
+        elif status == "pending" or status == "moderation":
             btn_text = f"⏳ #{req_id} ({section_name}) [На модерации]"
+            inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"my_req_{req_id}")])
+        elif status == "closed":
+            btn_text = f"📁 #{req_id} ({section_name}) [Закрыта]"
             inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"my_req_{req_id}")])
         else:
             btn_text = f"❌ #{req_id} ({section_name}) [Отклонено]"
@@ -281,7 +384,59 @@ async def btn_profile(message: Message):
 
 @router.callback_query(F.data.startswith("my_req_"))
 async def callback_my_request_info(callback: CallbackQuery):
-    await callback.answer("Эта заявка еще проверяется модератором или отклонена.", show_alert=True)
+    await callback.answer("Статус заявки отображается на кнопке.", show_alert=True)
+
+
+# Интерактивное закрытие заявки автором
+@router.callback_query(F.data.startswith("close_req_"))
+async def callback_close_request(callback: CallbackQuery, bot: Bot):
+    req_id = int(callback.data.replace("close_req_", ""))
+    req_data = get_request_by_id(req_id)
+    
+    if not req_data:
+        await callback.answer("⚠️ Заявка не найдена!", show_alert=True)
+        return
+
+    owner_id, section_name, what, where_field, when_field, photo_id, status, post_id = req_data
+    
+    if owner_id != callback.from_user.id:
+        await callback.answer("⚠️ Это не твоя заявка!", show_alert=True)
+        return
+
+    # Определяем канал по названию раздела
+    reverse_map = {
+        "Живая опора": "chan_help",
+        "Общаг/Базар": "chan_bazar",
+        "Общий Гараж": "chan_garage",
+        "Остатки": "chan_ostatki"
+    }
+    clean_sec = section_name
+    for prefix in ["🤝 ", "📦 ", "🛠 ", "♻️ "]:
+        clean_sec = clean_sec.replace(prefix, "")
+    sec_key = reverse_map.get(clean_sec, "chan_help")
+    chan_username = CHANNELS.get(sec_key, "@asar_hq")
+
+    # Удаляем или обновляем пост в канале
+    if post_id:
+        try:
+            await bot.delete_message(chat_id=chan_username, message_id=post_id)
+        except Exception:
+            try:
+                # Если удалить не получилось (прошло много времени), редактируем текст в канале
+                closed_caption = f"📁 <b>[ЗАКРЫТО / ИСПОЛНЕНО]</b>\n\n<s>{section_name}\n\n❓ Что: {what}\n📍 Где: {where_field}\n🕐 Когда: {when_field}</s>"
+                await bot.edit_message_caption(chat_id=chan_username, message_id=post_id, caption=closed_caption, parse_mode="HTML", reply_markup=None)
+            except Exception:
+                pass
+
+    update_request_status(req_id, "closed", post_id)
+    await callback.answer("✅ Заявка успешно закрыта и удалена из канала!", show_alert=True)
+
+    # Обновляем сообщение профиля
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer("✅ Твоя заявка переведена в статус закрытых.", reply_markup=main_reply_menu())
 
 
 @router.callback_query(F.data == "edit_profile")
@@ -351,12 +506,12 @@ async def section_text_selected(message: Message, state: FSMContext):
     )
 
 
-# ─── Пошаговые заявки (с реальной геолокацией) ──────────────────────────────────
+# ─── Пошаговые заявки ──────────────────────────────────────────────────────────
 
 @router.message(Form.waiting_what, F.chat.type == "private")
 async def step_what(message: Message, state: FSMContext):
     if not message.text:
-        await message.answer("⚠️ Братишка, нужно отправить текстовое описание!", reply_markup=back_btn())
+        await message.answer("⚠️ Нужно отправить текстовое описание!", reply_markup=back_btn())
         return
     if message.text.startswith("/"):
         await message.answer("⚠️ Заполни текущий пункт или нажми отмену.", reply_markup=back_btn())
@@ -493,7 +648,7 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         await bot.send_message(ADMIN_ID, caption, reply_markup=admin_kb, parse_mode="HTML")
 
 
-# ─── Модерация заявок ──────────────────────────────────────────────────────────
+# ─── Модерация заявок с автоначислением баурсака и безопасной связью ──────────
 
 @router.callback_query(F.data.startswith("mod_"))
 async def moderate_action(callback: CallbackQuery, bot: Bot):
@@ -505,13 +660,11 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
 
     if action == "yes":
         chan_username = CHANNELS.get(section_key, "@asar_hq")
-        from database import get_request_by_id
         req_data = get_request_by_id(req_id)
         if not req_data:
             await callback.message.answer("⚠️ Ошибка: заявка не найдена в базе!")
             return
 
-        # Достаем все поля из базы: user_id, section, what, where_field, when_field, photo_id
         user_id      = req_data[0]
         section_name = req_data[1]
         what         = req_data[2]
@@ -519,7 +672,6 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         when_field   = req_data[4]
         photo_id     = req_data[5]
 
-        # Собираем полноценную карточку заявки для канала
         channel_text = (
             f"🤝 <b>{section_name}</b>\n\n"
             f"<blockquote>"
@@ -529,16 +681,15 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             f"</blockquote>"
         )
 
-        # Автоматически получаем username нашего бота для формирования ссылки-профиля
         bot_info = await bot.get_me()
         bot_username = bot_info.username
 
-        # Делаем кнопку ссылкой, которая ведет в ЛС бота к конкретному пользователю
+        # Две кнопки под постом в канале: профиль автора + безопасный отклик через бота
         chan_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="👤 Профиль автора", 
-                url=f"https://t.me/{bot_username}?start=profile_{user_id}"
-            )]
+            [
+                InlineKeyboardButton(text="👤 Профиль", url=f"https://t.me/{bot_username}?start=profile_{user_id}"),
+                InlineKeyboardButton(text="💬 Откликнуться", url=f"https://t.me/{bot_username}?start=respond_{req_id}")
+            ]
         ])
 
         sent_post_id = None
@@ -553,18 +704,20 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
 
         update_request_status(req_id, "published", sent_post_id)
 
+        # Автоначисление +1 баурсака автору за вклад в экосистему
+        update_balance(user_id, 1)
+
         try:
             await callback.message.delete()
         except Exception:
             pass
 
         try:
-            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале!")
+            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале! Вам начислено 🪙 <b>+1 баурсак</b>.", parse_mode="HTML")
         except Exception:
             pass
 
     elif action == "no":
-        from database import get_request_by_id
         req_data = get_request_by_id(req_id)
         user_id = req_data[0] if req_data else None
 
@@ -652,9 +805,9 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-    print("🚀 Бот АСАР запущен со всеми концепциями и правилами!")
+    print("🚀 Бот АСАР запущен со всеми новыми фичами (карма, отклики, авто-баурсаки)!")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    asyncio.run(main() 
+    asyncio.run(main())
