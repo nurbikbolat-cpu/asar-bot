@@ -6,7 +6,7 @@ DB = "asar_bot.db"
 def init_db():
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
-    
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id      INTEGER PRIMARY KEY,
@@ -18,7 +18,7 @@ def init_db():
             bio          TEXT
         )
     """)
-    
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS requests (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +32,7 @@ def init_db():
             post_id      INTEGER
         )
     """)
-    
+
     # Миграции: добавить колонки если их нет (для старых БД)
     migrations = [
         ("users", "bauyrsaklar", "INTEGER DEFAULT 3"),
@@ -42,7 +42,7 @@ def init_db():
         ("requests", "post_id", "INTEGER"),
         ("requests", "status", "TEXT DEFAULT 'moderation'")
     ]
-    
+
     for table, col, definition in migrations:
         try:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
@@ -114,21 +114,21 @@ def get_user_profile(user_id):
         "SELECT full_name, username, bauyrsaklar, role, bio FROM users WHERE user_id = ?",
         (user_id,)
     ).fetchone()
-    
+
     published = conn.execute(
         "SELECT COUNT(*) FROM requests WHERE user_id = ? AND status = 'published'",
         (user_id,)
     ).fetchone()[0]
-    
+
     total = conn.execute(
         "SELECT COUNT(*) FROM requests WHERE user_id = ?",
         (user_id,)
     ).fetchone()[0]
-    
+
     conn.close()
     if user is None:
         return None
-        
+
     full_name, username, bauyrsaklar, role, bio = user
     bauyrsaklar = bauyrsaklar if bauyrsaklar is not None else 3
     return full_name, username, bauyrsaklar, published, total, role, bio
@@ -144,24 +144,22 @@ def get_user_requests_detailed(user_id: int):
         ORDER BY id DESC
     """, (user_id,)).fetchall()
     conn.close()
-    
-    # Сопоставляем русское название раздела с ключом из словаря каналов (SECTION_KEYS_MAP)
+
     reverse_map = {
         "Живая опора": "chan_help",
         "Общаг/Базар": "chan_bazar",
         "Общий Гараж": "chan_garage",
         "Остатки": "chan_ostatki"
     }
-    
+
     result = []
     for r_id, section_name, status, post_id, what in rows:
-        # Очищаем название раздела от эмодзи для точного маппинга
         clean_sec = section_name
         for prefix in ["🤝 ", "📦 ", "🛠 ", "♻️ "]:
             clean_sec = clean_sec.replace(prefix, "")
         sec_key = reverse_map.get(clean_sec, "chan_help")
         result.append((r_id, clean_sec, status, post_id, sec_key))
-        
+
     return result
 
 
