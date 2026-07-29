@@ -41,6 +41,11 @@ class ProfileForm(StatesGroup):
 class ReviewForm(StatesGroup):
     waiting_comment = State()
 
+# Новые состояния для фотофиксации гаража «До / После»
+class GarageToolForm(StatesGroup):
+    waiting_photo_before = State()
+    waiting_photo_after  = State()
+
 
 # ─── Нижняя клавиатура ──────────────────────────────────────────────────────────
 
@@ -115,7 +120,7 @@ SECTION_QUESTIONS = {
 }
 
 
-# ─── /start и Уведомления ──────────────────────────────────────────────────────
+# ─── /start, Пасхалка /barsik и Уведомления ──────────────────────────────────────
 
 DISCLAIMER_TEXT = (
     "⚖️ <b>Юридическое уведомление и правила сервиса Asar</b>\n\n"
@@ -154,12 +159,21 @@ def legal_kb():
     ])
 
 
+@router.message(Command("barsik"), F.chat.type == "private")
+async def cmd_barsik_easter_egg(message: Message):
+    await message.answer(
+        "🐾 *Мяу! Барсик на связи.* \n"
+        "Я главный пушистый аудитор экосистемы Asar. Слежу за тем, чтобы инструмент возвращали вовремя, а баурсаки начислялись честно! "
+        "Монстры на каникулах одобряют эту сделку! 🐱✨",
+        parse_mode="Markdown"
+    )
+
+
 @router.message(CommandStart(), F.chat.type == "private")
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     args = message.text.split()
 
-    # Обработка отклика на заявку через бота: /start respond_{req_id}
     if len(args) > 1 and args[1].startswith("respond_"):
         try:
             req_id = int(args[1].replace("respond_", ""))
@@ -172,8 +186,7 @@ async def cmd_start(message: Message, state: FSMContext):
                     responder = message.from_user
                     resp_name = responder.full_name
                     resp_handle = f"@{responder.username}" if responder.username else f"ID: {responder.id}"
-                    
-                    # Отправляем уведомление автору заявки с кнопкой связи с откликнувшимся
+
                     contact_kb = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="💬 Написать участнику", url=f"t.me/{responder.username}" if responder.username else f"tg://user?id={responder.id}")]
                     ])
@@ -182,7 +195,8 @@ async def cmd_start(message: Message, state: FSMContext):
                             owner_id,
                             f"⚡️ <b>К твоей заявке #{req_id} ({section}) есть отклик!</b>\n\n"
                             f"👤 Участник: <b>{resp_name}</b> ({resp_handle})\n"
-                            f"❓ Суть: <i>{what}</i>",
+                            f"❓ Суть: <i>{what}</i>\n"
+                            f"🐾 <i>Барсик подсказывает: договоритесь о фотофиксации „До“ при передаче железа!</i>",
                             reply_markup=contact_kb,
                             parse_mode="HTML"
                         )
@@ -199,7 +213,6 @@ async def cmd_start(message: Message, state: FSMContext):
             pass
         return
 
-    # Обработка перехода по ссылке профиля: /start profile_{user_id}
     if len(args) > 1 and args[1].startswith("profile_"):
         try:
             target_user_id = int(args[1].replace("profile_", ""))
@@ -220,8 +233,7 @@ async def cmd_start(message: Message, state: FSMContext):
                     f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
                     f"⭐ <b>Карма / Отзывы:</b> <code>{karma_str}</code>"
                 )
-                
-                # Кнопки кармы для других пользователей (если это не свой профиль)
+
                 card_kb = None
                 if target_user_id != message.from_user.id:
                     card_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -274,12 +286,12 @@ async def process_legal_acceptance(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ─── Обработка системы кармы и отзывов ──────────────────────────────────────────
+# ─── Система кармы и отзывов ──────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("karma_up_") | F.data.startswith("karma_down_"))
 async def process_karma_button(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
-    action = parts[1]  # up или down
+    action = parts[1]
     target_id = int(parts[2])
 
     if target_id == callback.from_user.id:
@@ -317,7 +329,7 @@ async def process_karma_comment(message: Message, state: FSMContext):
     )
 
 
-# ─── Нижнее меню и профиль ──────────────────────────────────────────────────────
+# ─── Нижнее меню и профиль (с пасхалкой Барсика при нулевом балансе) ──────────
 
 @router.message(F.text == "🏢 Весь Штаб (Каналы)", F.chat.type == "private")
 async def btn_channels(message: Message):
@@ -347,12 +359,16 @@ async def btn_profile(message: Message):
     bio_text = bio if bio else "<i>Не указано</i>"
     karma_str = f"+{karma}" if karma > 0 else str(karma)
 
+    barsik_note = ""
+    if bauyrsaklar <= 0:
+        barsik_note = "\n\n🐾 <i>Барсик шепчет: у тебя нулевой баланс баурсаков! Срочно выручи соседа, чтобы восстановить карму!</i>"
+
     text = (
         f"🐱 <b>Профиль участника</b>\n\n"
         f"👤 <b>Имя:</b> {full_name} ({handle})\n"
         f"🏷 <b>Роль / Профессия:</b> {role_text}\n"
         f"📝 <b>О себе:</b> {bio_text}\n\n"
-        f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>\n"
+        f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>{barsik_note}\n"
         f"⭐ <b>Карма:</b> <code>{karma_str}</code>\n"
         f"✅ <b>Опубликовано:</b> {published} | 📋 <b>Всего:</b> {total} (на модерации: {pending})\n\n"
         f"👇 <b>Твои заявки (жми для управления):</b>"
@@ -363,9 +379,13 @@ async def btn_profile(message: Message):
 
     for req_id, section_name, status, post_id, sec_key in user_requests:
         if status == "published":
-            # Кнопка для управления опубликованной заявкой (можно закрыть)
             btn_text = f"✅ #{req_id} ({section_name}) [Закрыть]"
             inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"close_req_{req_id}")])
+            
+            # Если это гараж, добавляем кнопку фотофиксации «До / После»
+            if "Гараж" in section_name:
+                inline_buttons.append([InlineKeyboardButton(text=f"📸 Фотофиксация железа #{req_id}", callback_data=f"tool_photo_{req_id}")])
+                
         elif status == "pending" or status == "moderation":
             btn_text = f"⏳ #{req_id} ({section_name}) [На модерации]"
             inline_buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"my_req_{req_id}")])
@@ -387,23 +407,67 @@ async def callback_my_request_info(callback: CallbackQuery):
     await callback.answer("Статус заявки отображается на кнопке.", show_alert=True)
 
 
-# Интерактивное закрытие заявки автором
+# ─── ФОТОФИКСАЦИЯ ИНСТРУМЕНТОВ В ГАРАЖЕ («До / После») ───────────────────────
+
+@router.callback_query(F.data.startswith("tool_photo_"))
+async def callback_tool_photo_start(callback: CallbackQuery, state: FSMContext):
+    req_id = int(callback.data.replace("tool_photo_", ""))
+    await state.update_data(current_tool_req_id=req_id)
+    await state.set_state(GarageToolForm.waiting_photo_before)
+    
+    await callback.answer()
+    await callback.message.answer(
+        "📸 <b>Фотофиксация инструмента (Шаг 1 из 2)</b>\n\n"
+        "Сделай и отправь фото текущего состояния железа *(«До» выдачи / при получении)*, чтобы в будущем не было споров:",
+        reply_markup=back_btn(),
+        parse_mode="HTML"
+    )
+
+@router.message(GarageToolForm.waiting_photo_before, F.photo, F.chat.type == "private")
+async def tool_get_photo_before(message: Message, state: FSMContext):
+    photo_before_id = message.photo[-1].file_id
+    await state.update_data(photo_before_id=photo_before_id)
+    await state.set_state(GarageToolForm.waiting_photo_after)
+    
+    await message.answer(
+        "📸 <b>Фотофиксация инструмента (Шаг 2 из 2)</b>\n\n"
+        "Отлично! Теперь сделай и отправь фото при возврате / сдаче инструмента *(«После» использования)*:",
+        reply_markup=back_btn(),
+        parse_mode="HTML"
+    )
+
+@router.message(GarageToolForm.waiting_photo_after, F.photo, F.chat.type == "private")
+async def tool_get_photo_after(message: Message, state: FSMContext):
+    photo_after_id = message.photo[-1].file_id
+    data = await state.get_data()
+    req_id = data.get("current_tool_req_id")
+    photo_before_id = data.get("photo_before_id")
+    await state.clear()
+
+    await message.answer(
+        f"✅ <b>Фотофиксация по заявке #{req_id} успешно сохранена!</b>\n"
+        "Обе фотографии («До» и «После») зафиксированы в системе для предотвращения споров. Барсик спокоен! 🐾",
+        reply_markup=main_reply_menu(),
+        parse_mode="HTML"
+    )
+
+
+# Закрытие заявки автором
 @router.callback_query(F.data.startswith("close_req_"))
 async def callback_close_request(callback: CallbackQuery, bot: Bot):
     req_id = int(callback.data.replace("close_req_", ""))
     req_data = get_request_by_id(req_id)
-    
+
     if not req_data:
         await callback.answer("⚠️ Заявка не найдена!", show_alert=True)
         return
 
     owner_id, section_name, what, where_field, when_field, photo_id, status, post_id = req_data
-    
+
     if owner_id != callback.from_user.id:
         await callback.answer("⚠️ Это не твоя заявка!", show_alert=True)
         return
 
-    # Определяем канал по названию раздела
     reverse_map = {
         "Живая опора": "chan_help",
         "Общаг/Базар": "chan_bazar",
@@ -416,13 +480,11 @@ async def callback_close_request(callback: CallbackQuery, bot: Bot):
     sec_key = reverse_map.get(clean_sec, "chan_help")
     chan_username = CHANNELS.get(sec_key, "@asar_hq")
 
-    # Удаляем или обновляем пост в канале
     if post_id:
         try:
             await bot.delete_message(chat_id=chan_username, message_id=post_id)
         except Exception:
             try:
-                # Если удалить не получилось (прошло много времени), редактируем текст в канале
                 closed_caption = f"📁 <b>[ЗАКРЫТО / ИСПОЛНЕНО]</b>\n\n<s>{section_name}\n\n❓ Что: {what}\n📍 Где: {where_field}\n🕐 Когда: {when_field}</s>"
                 await bot.edit_message_caption(chat_id=chan_username, message_id=post_id, caption=closed_caption, parse_mode="HTML", reply_markup=None)
             except Exception:
@@ -431,7 +493,6 @@ async def callback_close_request(callback: CallbackQuery, bot: Bot):
     update_request_status(req_id, "closed", post_id)
     await callback.answer("✅ Заявка успешно закрыта и удалена из канала!", show_alert=True)
 
-    # Обновляем сообщение профиля
     try:
         await callback.message.delete()
     except Exception:
@@ -648,7 +709,7 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         await bot.send_message(ADMIN_ID, caption, reply_markup=admin_kb, parse_mode="HTML")
 
 
-# ─── Модерация заявок с автоначислением баурсака и безопасной связью ──────────
+# ─── Модерация заявок ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("mod_"))
 async def moderate_action(callback: CallbackQuery, bot: Bot):
@@ -684,7 +745,6 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         bot_info = await bot.get_me()
         bot_username = bot_info.username
 
-        # Две кнопки под постом в канале: профиль автора + безопасный отклик через бота
         chan_kb = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="👤 Профиль", url=f"https://t.me/{bot_username}?start=profile_{user_id}"),
@@ -703,8 +763,6 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             print(f"Не удалось отправить в канал: {e}")
 
         update_request_status(req_id, "published", sent_post_id)
-
-        # Автоначисление +1 баурсака автору за вклад в экосистему
         update_balance(user_id, 1)
 
         try:
@@ -713,7 +771,7 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             pass
 
         try:
-            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале! Вам начислено 🪙 <b>+1 баурсак</b>.", parse_mode="HTML")
+            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале! Вам начислено 🪙 <b>+1 баурсак</b>. 🐾 *Барсик доволен!*", parse_mode="HTML")
         except Exception:
             pass
 
@@ -783,7 +841,7 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         pass
 
 
-# ─── Запуск (веб-сервер + лонг-поллинг для бесплатного Render) ─────────────────
+# ─── Запуск ─────────────────────────────────────────────────────────────────────
 
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
@@ -805,7 +863,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-    print("🚀 Бот АСАР запущен со всеми новыми фичами (карма, отклики, авто-баурсаки)!")
+    print("🚀 Бот АСАР успешно запущен со всеми обновлениями (фотофиксация гаража, Барсик и экосистема)!")
     await dp.start_polling(bot)
 
 
