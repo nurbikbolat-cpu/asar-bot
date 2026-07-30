@@ -34,9 +34,11 @@ def init_db():
                 what         TEXT,
                 where_field  TEXT,
                 when_field   TEXT,
+                reward       INTEGER DEFAULT 0,
                 photo_id     TEXT,
                 status       TEXT DEFAULT 'moderation',
-                post_id      INTEGER
+                post_id      INTEGER,
+                responder_id INTEGER
             )
         """)
 
@@ -70,7 +72,9 @@ def init_db():
             ("users", "role", "TEXT"),
             ("users", "bio", "TEXT"),
             ("requests", "post_id", "INTEGER"),
-            ("requests", "status", "TEXT DEFAULT 'moderation'")
+            ("requests", "status", "TEXT DEFAULT 'moderation'"),
+            ("requests", "reward", "INTEGER DEFAULT 0"),
+            ("requests", "responder_id", "INTEGER")
         ]
 
         for table, col, definition in migrations:
@@ -92,12 +96,12 @@ def save_user(user_id, username, full_name):
         conn.commit()
 
 
-def add_request(user_id, section, what, where_field, when_field, photo_id=None):
+def add_request(user_id, section, what, where_field, when_field, reward=0, photo_id=None):
     with get_connection() as conn:
         cur = conn.execute("""
-            INSERT INTO requests (user_id, section, what, where_field, when_field, photo_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (user_id, section, what, where_field, when_field, photo_id))
+            INSERT INTO requests (user_id, section, what, where_field, when_field, reward, photo_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, section, what, where_field, when_field, reward, photo_id))
         conn.commit()
         return cur.lastrowid
 
@@ -118,6 +122,13 @@ def set_accepted(user_id: int):
             "UPDATE users SET accepted = 1 WHERE user_id = ?", (user_id,)
         )
         conn.commit()
+
+
+def get_user_balance(user_id: int) -> int:
+    """Возвращает текущий баланс баурсаков пользователя."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT bauyrsaklar FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        return row["bauyrsaklar"] if row and row["bauyrsaklar"] is not None else 3
 
 
 def update_user_full_profile(user_id: int, role: str, bio: str):
@@ -174,7 +185,7 @@ def get_user_profile_by_id(user_id: int):
             "SELECT full_name, username, bauyrsaklar, role, bio FROM users WHERE user_id = ?",
             (user_id,)
         ).fetchone()
-        
+
         if row is None:
             return None
 
@@ -197,7 +208,7 @@ def get_user_requests_detailed(user_id: int):
     """Возвращает список заявок пользователя для генерации кнопок в профиле."""
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT id, section, status, post_id, what 
+            SELECT id, section, status, post_id, what, reward, responder_id 
             FROM requests 
             WHERE user_id = ? 
             ORDER BY id DESC
@@ -216,7 +227,7 @@ def get_user_requests_detailed(user_id: int):
         for prefix in ["🤝 ", "📦 ", "🛠 ", "♻️ "]:
             clean_sec = clean_sec.replace(prefix, "")
         sec_key = reverse_map.get(clean_sec, "chan_help")
-        result.append((r["id"], clean_sec, r["status"], r["post_id"], sec_key))
+        result.append((r["id"], clean_sec, r["status"], r["post_id"], sec_key, r["reward"], r["responder_id"]))
 
     return result
 
@@ -225,18 +236,26 @@ def get_request_by_id(req_id: int):
     """Возвращает данные конкретной заявки."""
     with get_connection() as conn:
         return conn.execute(
-            "SELECT user_id, section, what, where_field, when_field, photo_id, status, post_id FROM requests WHERE id = ?", 
+            "SELECT user_id, section, what, where_field, when_field, reward, photo_id, status, post_id, responder_id FROM requests WHERE id = ?", 
             (req_id,)
         ).fetchone()
 
 
-def update_request_status(req_id: int, status: str, post_id: int = None):
-    """Обновляет статус заявки и сохраняет ID поста в канале."""
+def update_request_status(req_id: int, status: str, post_id: int = None, responder_id: int = None):
+    """Обновляет статус заявки, ID поста в канале и ID откликнувшегося."""
     with get_connection() as conn:
+        fields = ["status = ?"]
+        params = [status]
+
         if post_id is not None:
-            conn.execute("UPDATE requests SET status = ?, post_id = ? WHERE id = ?", (status, post_id, req_id))
-        else:
-            conn.execute("UPDATE requests SET status = ? WHERE id = ?", (status, req_id))
+            fields.append("post_id = ?")
+            params.append(post_id)
+        if responder_id is not None:
+            fields.append("responder_id = ?")
+            params.append(responder_id)
+
+        params.append(req_id)
+        conn.execute(f"UPDATE requests SET {', '.join(fields)} WHERE id = ?", params)
         conn.commit()
 
 
