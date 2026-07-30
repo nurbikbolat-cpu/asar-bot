@@ -23,7 +23,7 @@ from database import (
     init_db, save_user, add_request, update_request_status,
     get_user_profile, has_accepted, set_accepted, update_balance,
     get_user_requests_detailed, update_user_full_profile, get_user_profile_by_id,
-    get_request_by_id, add_review
+    get_request_by_id, add_review, get_user_balance
 )
 
 ADMIN_ID = 1310962889
@@ -68,19 +68,16 @@ class ModerationMiddleware(BaseMiddleware):
         user_id = event.from_user.id
         chat = event.chat
 
-        # Пропускаем личные сообщения
         if chat.type == "private":
             save_user(user_id, event.from_user.username, event.from_user.full_name)
             return await handler(event, data)
 
-        # Админа не трогаем
         if user_id == ADMIN_ID:
             return await handler(event, data)
 
         now = time.time()
         last_time = self.user_last_message[user_id]
 
-        # 1. Антифлуд (слишком частые сообщения)
         if now - last_time < self.limit_seconds:
             try:
                 await event.delete()
@@ -93,7 +90,6 @@ class ModerationMiddleware(BaseMiddleware):
 
         self.user_last_message[user_id] = now
 
-        # 2. Проверка фотографий через нейросеть (18+)
         if event.photo:
             try:
                 file = await event.bot.get_file(event.photo[-1].file_id)
@@ -109,17 +105,14 @@ class ModerationMiddleware(BaseMiddleware):
             except Exception as e:
                 logging.error(f"Ошибка проверки фото: {e}")
 
-        # 3. Усиленный фильтр ссылок / спама / казино
         if event.text:
             text_lower = event.text.lower()
-            
-            # Стоп-слова для выявления спама и мошенничества без ссылок
             spam_triggers = [
                 "казино", "casino", "заработок", "инвестиции", "инвестировать", 
                 "крипта", "бинарн", "ставки", "бонус за регистрацию", "легкие деньги",
                 "пассивный доход", "арбитраж трафика", "вывод средств", "капер", "сигналы"
             ]
-            
+
             has_link = any(trigger in text_lower for trigger in ["http://", "https://", "www.", "t.me/", "tg://"])
             is_allowed_link = "t.me/asar" in text_lower or "t.me/asar_help" in text_lower
             has_spam_word = any(word in text_lower for word in spam_triggers)
@@ -140,10 +133,11 @@ class ModerationMiddleware(BaseMiddleware):
 # ─── FSM Состояния ─────────────────────────────────────────────────────────────
 
 class Form(StatesGroup):
-    waiting_what  = State()
-    waiting_where = State()
-    waiting_when  = State()
-    waiting_photo = State()
+    waiting_what   = State()
+    waiting_where  = State()
+    waiting_when   = State()
+    waiting_reward = State()
+    waiting_photo  = State()
 
 
 class ProfileForm(StatesGroup):
@@ -192,6 +186,13 @@ def where_kb():
     )
 
 
+def skip_reward_btn():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="0️⃣ Без баурсаков (на энтузиазме)", callback_data="reward_0")],
+        [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
+    ])
+
+
 def skip_photo_btn():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏭ Пропустить фото", callback_data="skip_photo")],
@@ -222,22 +223,22 @@ SECTION_KEYS_MAP = {
 SECTION_QUESTIONS = {
     "chan_help": (
         "🤝 <b>В чем нужна помощь или чем можешь выручить?</b> Опиши суть:",
-        "📍 <b>В каком районе или месте это актуально?</b> (Напиши текстом или отправь геолокацию через кнопку ниже):",
+        "📍 <b>В каком районе или месте это актуально?</b> (Напиши текстом или отправь геолокацию):",
         "⏱ <b>Когда это нужно или когда удобно помочь?</b>",
     ),
     "chan_bazar": (
         "📦 <b>Что за товар, вещь или совместная закупка?</b> Опиши детально:",
-        "📍 <b>Где забирать или где актуально?</b> (Текст или геолокация через кнопку ниже):",
+        "📍 <b>Где забирать или где актуально?</b> (Текст или геолокация):",
         "💰 <b>Какая цена, условия или сроки закупки?</b>",
     ),
     "chan_garage": (
         "🛠 <b>Какой инструмент, техника или оборудование нужно / предлагаешь?</b>",
-        "📍 <b>Где находится железо / куда доставить?</b> (Текст или геолокация через кнопку ниже):",
+        "📍 <b>Где находится железо / куда доставить?</b> (Текст или геолокация):",
         "⏱ <b>На какой срок нужно или когда доступно?</b>",
     ),
     "chan_ostatki": (
         "♻️ <b>Что за материалы или излишки отдаёшь/ищешь?</b> Опиши:",
-        "📍 <b>Где территориально лежат остатки?</b> (Текст или геолокация через кнопку ниже):",
+        "📍 <b>Где территориально лежат остатки?</b> (Текст или геолокация):",
         "⏱ <b>До какого времени актуально / когда вывоз?</b>",
     ),
 }
@@ -274,7 +275,7 @@ ABOUT_PROJECT_TEXT = (
 )
 
 
-# ─── Старт, Пасхалка и Соглашение ──────────────────────────────────────────────
+# ─── Старт и Deep Linking (Отклик, Профиль, Подтверждение сделки) ──────────────
 
 @router.message(Command("barsik"), F.chat.type == "private")
 async def cmd_barsik_easter_egg(message: Message):
@@ -287,39 +288,52 @@ async def cmd_barsik_easter_egg(message: Message):
 
 
 @router.message(CommandStart(), F.chat.type == "private")
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
     args = message.text.split()
+    user_id = message.from_user.id
+    save_user(user_id, message.from_user.username, message.from_user.full_name)
 
+    # 1. Обработка отклика на заявку
     if len(args) > 1 and args[1].startswith("respond_"):
         try:
             req_id = int(args[1].replace("respond_", ""))
             req_data = get_request_by_id(req_id)
             if req_data:
-                owner_id, section, what, where_field, when_field, photo_id, status, post_id = req_data
-                if owner_id == message.from_user.id:
+                owner_id = req_data["user_id"]
+                section = req_data["section"]
+                what = req_data["what"]
+                status = req_data["status"]
+
+                if owner_id == user_id:
                     await message.answer("⚠️ Это твоя собственная заявка!")
+                elif status != "published":
+                    await message.answer("⚠️ Эта заявка уже закрыта или неактивна.")
                 else:
                     responder = message.from_user
                     resp_name = responder.full_name
                     resp_handle = f"@{responder.username}" if responder.username else f"ID: {responder.id}"
 
+                    # Фиксируем откликнувшегося в базе
+                    update_request_status(req_id, "published", responder_id=user_id)
+
                     contact_kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="💬 Написать участнику", url=f"t.me/{responder.username}" if responder.username else f"tg://user?id={responder.id}")]
+                        [InlineKeyboardButton(text="💬 Написать участнику", url=f"t.me/{responder.username}" if responder.username else f"tg://user?id={responder.id}")],
+                        [InlineKeyboardButton(text="🤝 Подтвердить сделку и перевести баурсаки", callback_data=f"deal_confirm_{req_id}")]
                     ])
                     try:
-                        await message.bot.send_message(
+                        await bot.send_message(
                             owner_id,
                             f"⚡️ <b>К твоей заявке #{req_id} ({section}) есть отклик!</b>\n\n"
                             f"👤 Участник: <b>{resp_name}</b> ({resp_handle})\n"
-                            f"❓ Суть: <i>{what}</i>\n"
-                            f"🐾 <i>Барсик подсказывает: договоритесь о фотофиксации „До“ при передаче железа!</i>",
+                            f"❓ Суть: <i>{what}</i>\n\n"
+                            f"🐾 <i>Барсик подсказывает: когда поможете друг другу, нажмите кнопку подтверждения ниже, чтобы перевести баурсаки и закрыть сделку!</i>",
                             reply_markup=contact_kb,
                             parse_mode="HTML"
                         )
                         await message.answer(
                             "✅ <b>Отклик успешно отправлен автору заявки!</b>\n"
-                            "Он получил твои контакты и скоро свяжется с тобой в личке.",
+                            "Он получил твои контакты. Как только всё сделаете, автор подтвердит сделку в своем профиле.",
                             parse_mode="HTML"
                         )
                     except Exception:
@@ -330,6 +344,7 @@ async def cmd_start(message: Message, state: FSMContext):
             pass
         return
 
+    # 2. Просмотр чужого профиля
     if len(args) > 1 and args[1].startswith("profile_"):
         try:
             target_user_id = int(args[1].replace("profile_", ""))
@@ -352,7 +367,7 @@ async def cmd_start(message: Message, state: FSMContext):
                 )
 
                 card_kb = None
-                if target_user_id != message.from_user.id:
+                if target_user_id != user_id:
                     card_kb = InlineKeyboardMarkup(inline_keyboard=[
                         [
                             InlineKeyboardButton(text="👍 Плюс в карму", callback_data=f"karma_up_{target_user_id}"),
@@ -362,10 +377,9 @@ async def cmd_start(message: Message, state: FSMContext):
                 await message.answer(card_text, parse_mode="HTML", reply_markup=card_kb)
         except ValueError:
             pass
+        return
 
-    save_user(message.from_user.id, message.from_user.username, message.from_user.full_name)
-
-    if not has_accepted(message.from_user.id):
+    if not has_accepted(user_id):
         await message.answer(DISCLAIMER_TEXT, reply_markup=legal_kb(), parse_mode="HTML")
         return
 
@@ -393,6 +407,63 @@ async def process_legal_acceptance(callback: CallbackQuery, state: FSMContext):
         reply_markup=main_reply_menu(),
         parse_mode="HTML"
     )
+
+
+# ─── Двухстороннее подтверждение сделки и перевод баурсаков ────────────────────
+
+@router.callback_query(F.data.startswith("deal_confirm_"))
+async def callback_confirm_deal(callback: CallbackQuery, bot: Bot):
+    req_id = int(callback.data.replace("deal_confirm_", ""))
+    req_data = get_request_by_id(req_id)
+
+    if not req_data or req_data["user_id"] != callback.from_user.id:
+        await callback.answer("⚠️ Подтвердить сделку может только автор заявки!", show_alert=True)
+        return
+
+    responder_id = req_data["responder_id"]
+    reward = req_data["reward"]
+
+    if not responder_id:
+        await callback.answer("⚠️ На эту заявку еще никто не откликался через бота!", show_alert=True)
+        return
+
+    # Перевод баурсаков от автора к помощнику (если они были выделены)
+    if reward > 0:
+        update_balance(responder_id, reward)
+
+    update_request_status(req_id, "closed")
+    await callback.answer("✅ Сделка подтверждена! Баурсаки переведены.", show_alert=True)
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await callback.message.answer(
+        f"✅ <b>Сделка по заявке #{req_id} успешно завершена!</b>\n"
+        f"🪙 Переведено помощнику: <b>{reward} баурсаков</b>. Барсик гордится вами! 🐾",
+        reply_markup=main_reply_menu(),
+        parse_mode="HTML"
+    )
+
+    # Уведомляем помощника и предлагаем оставить карму
+    try:
+        helper_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👍 Плюс автору в карму", callback_data=f"karma_up_{callback.from_user.id}"),
+                InlineKeyboardButton(text="👎 Минус в карму", callback_data=f"karma_down_{callback.from_user.id}")
+            ]
+        ])
+        await bot.send_message(
+            responder_id,
+            f"🎉 <b>Автор подтвердил выполнение сделки по заявке #{req_id}!</b>\n"
+            f"🪙 На твой баланс зачислено: <b>{reward} баурсаков</b>.\n\n"
+            f"⭐ Не забудь оценить автора и оставить отзыв в карму:",
+            reply_markup=helper_kb,
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
 
 
 # ─── Карма и отзывы ────────────────────────────────────────────────────────────
@@ -488,22 +559,26 @@ async def btn_profile(message: Message):
         f"🪙 <b>Баланс:</b> <code>{bauyrsaklar} баурсаков</code>{barsik_note}\n"
         f"⭐ <b>Карма:</b> <code>{karma_str}</code>\n"
         f"✅ <b>Опубликовано:</b> {published} | 📋 <b>Всего:</b> {total} (на модерации: {pending})\n\n"
-        f"👇 <b>Твои заявки:</b>"
+        f"👇 <b>Твои заявки и сделки:</b>"
     )
 
     user_requests = get_user_requests_detailed(user_id)
     inline_buttons = []
 
-    for req_id, section_name, status, post_id, sec_key in user_requests:
+    for req_id, section_name, status, post_id, sec_key, reward, responder_id in user_requests:
         chan_username = CHANNELS.get(sec_key, "@asar_hq").replace("@", "")
 
         if status == "published":
             if post_id:
-                inline_buttons.append([InlineKeyboardButton(text=f"👁 #{req_id} ({section_name}) [Смотреть в канале]", url=f"https://t.me/{chan_username}/{post_id}")])
+                inline_buttons.append([InlineKeyboardButton(text=f"👁 #{req_id} ({section_name}) [Смотреть]", url=f"https://t.me/{chan_username}/{post_id}")])
             else:
                 inline_buttons.append([InlineKeyboardButton(text=f"✅ #{req_id} ({section_name}) [Опубликовано]", callback_data=f"my_req_{req_id}")])
 
+            if responder_id:
+                inline_buttons.append([InlineKeyboardButton(text=f"🤝 Подтвердить сделку #{req_id}", callback_data=f"deal_confirm_{req_id}")])
+            
             inline_buttons.append([InlineKeyboardButton(text=f"🔒 Закрыть заявку #{req_id}", callback_data=f"close_req_{req_id}")])
+            
             if "Гараж" in section_name:
                 inline_buttons.append([InlineKeyboardButton(text=f"📸 Фотофиксация железа #{req_id}", callback_data=f"tool_photo_{req_id}")])
         elif status in ("pending", "moderation"):
@@ -567,11 +642,15 @@ async def callback_close_request(callback: CallbackQuery, bot: Bot):
     req_id = int(callback.data.replace("close_req_", ""))
     req_data = get_request_by_id(req_id)
 
-    if not req_data or req_data[0] != callback.from_user.id:
+    if not req_data or req_data["user_id"] != callback.from_user.id:
         await callback.answer("⚠️ Ошибка доступа!", show_alert=True)
         return
 
-    owner_id, section_name, what, where_field, when_field, photo_id, status, post_id = req_data
+    owner_id = req_data["user_id"]
+    section_name = req_data["section"]
+    status = req_data["status"]
+    post_id = req_data["post_id"]
+
     reverse_map = {"Живая опора": "chan_help", "Общаг/Базар": "chan_bazar", "Общий Гараж": "chan_garage", "Остатки": "chan_ostatki"}
     clean_sec = section_name
     for prefix in ["🤝 ", "📦 ", "🛠 ", "♻️ "]:
@@ -623,7 +702,7 @@ async def profile_get_bio(message: Message, state: FSMContext):
     await message.answer("✅ <b>Профиль успешно обновлен!</b>", reply_markup=main_reply_menu(), parse_mode="HTML")
 
 
-# ─── Подача заявок ─────────────────────────────────────────────────────────────
+# ─── Подача заявок с выбором баурсаков ─────────────────────────────────────────
 
 @router.message(F.text.in_(["🤝 Живая опора", "📦 Общаг/Базар", "🛠 Общий Гараж", "♻️ Остатки"]), F.chat.type == "private")
 async def section_text_selected(message: Message, state: FSMContext):
@@ -673,6 +752,55 @@ async def step_when(message: Message, state: FSMContext):
         await message.answer("⚠️ Укажи сроки текстом.", reply_markup=back_btn())
         return
     await state.update_data(when=message.text)
+    await state.set_state(Form.waiting_reward)
+
+    user_balance = get_user_balance(message.from_user.id)
+    await message.answer(
+        f"🪙 <b>Экономика баурсаков</b>\n\n"
+        f"Сколько баурсаков ты хочешь добровольно выделить в качестве вознаграждения за помощь?\n"
+        f"Твой текущий баланс: <code>{user_balance} баурсаков</code>\n\n"
+        f"<i>Отправь число цифрой (например: <code>5</code> или <code>10</code>) или нажми кнопку ниже:</i>",
+        reply_markup=skip_reward_btn(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(StateFilter(Form.waiting_reward), F.data == "reward_0")
+async def callback_reward_zero(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(reward=0)
+    await state.set_state(Form.waiting_photo)
+    await callback.message.answer("📸 <b>Закинь фото</b> (по желанию) или жми кнопку ниже:", reply_markup=skip_photo_btn(), parse_mode="HTML")
+
+
+@router.message(Form.waiting_reward, F.chat.type == "private")
+async def step_reward(message: Message, state: FSMContext):
+    if not message.text or message.text.startswith("/"):
+        await message.answer("⚠️ Введи число баурсаков цифрой.", reply_markup=back_btn())
+        return
+    
+    try:
+        reward = int(message.text.strip())
+        if reward < 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("⚠️ Пожалуйста, введи корректное положительное число.", reply_markup=back_btn())
+        return
+
+    user_id = message.from_user.id
+    current_balance = get_user_balance(user_id)
+
+    if reward > current_balance:
+        await message.answer(
+            f"⚠️ У тебя на балансе всего <code>{current_balance} баурсаков</code>. Ты не можешь выделить больше, чем есть!",
+            parse_mode="HTML",
+            reply_markup=back_btn()
+        )
+        return
+
+    # Замораживаем / списываем баурсаки с баланса создателя при публикации заявки
+    update_balance(user_id, -reward)
+    await state.update_data(reward=reward)
     await state.set_state(Form.waiting_photo)
     await message.answer("📸 <b>Закинь фото</b> (по желанию) или жми кнопку ниже:", reply_markup=skip_photo_btn(), parse_mode="HTML")
 
@@ -704,18 +832,21 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
     what = data.get("what", "—")
     where = data.get("where", "—")
     when = data.get("when", "—")
+    reward = data.get("reward", 0)
     photo_id = data.get("photo_id")
 
     user_id = user.id if user else message.chat.id
     full_name = user.full_name if user else (message.chat.full_name or "")
     username = user.username if user else (message.chat.username or "")
 
-    req_id = add_request(user_id, section_name, what, where, when, photo_id)
+    req_id = add_request(user_id, section_name, what, where, when, reward, photo_id)
     chan_username = CHANNELS.get(section_key, "@asar_hq")
+
+    reward_str = f"\n🪙 Награда: <b>{reward} баурсаков</b>" if reward > 0 else ""
 
     await message.answer(
         "✅ <b>Заявка принята на модерацию!</b>\n\n"
-        f"<blockquote><b>📂 {section_name}</b>\n❓ Что: {what}\n📍 Где: {where}\n🕐 Когда: {when}</blockquote>",
+        f"<blockquote><b>📂 {section_name}</b>\n❓ Что: {what}\n📍 Где: {where}\n🕐 Когда: {when}{reward_str}</blockquote>",
         parse_mode="HTML",
         reply_markup=main_reply_menu()
     )
@@ -724,7 +855,7 @@ async def finish_request(message: Message, state: FSMContext, bot: Bot, user=Non
         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"mod_yes_{req_id}_{section_key}"),
          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"mod_no_{req_id}_{section_key}")]
     ])
-    caption = f"🔔 <b>Новая заявка #{req_id}</b>\n👤 {full_name} (@{username}) → {chan_username}\n\n<blockquote>📂 <b>{section_name}</b>\n❓ Что: {what}\n📍 Где: {where}\n🕐 Когда: {when}</blockquote>"
+    caption = f"🔔 <b>Новая заявка #{req_id}</b>\n👤 {full_name} (@{username}) → {chan_username}\n\n<blockquote>📂 <b>{section_name}</b>\n❓ Что: {what}\n📍 Где: {where}\n🕐 Когда: {when}{reward_str}</blockquote>"
 
     if photo_id:
         await bot.send_photo(ADMIN_ID, photo=photo_id, caption=caption, reply_markup=admin_kb, parse_mode="HTML")
@@ -747,10 +878,19 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         if not req_data:
             return
 
-        user_id, section_name, what, where_field, when_field, photo_id, status, post_id = req_data
+        user_id = req_data["user_id"]
+        section_name = req_data["section"]
+        what = req_data["what"]
+        where_field = req_data["where_field"]
+        when_field = req_data["when_field"]
+        reward = req_data["reward"]
+        photo_id = req_data["photo_id"]
+        status = req_data["status"]
+
         chan_username = CHANNELS.get(section_key, "@asar_hq")
 
-        channel_text = f"🤝 <b>{section_name}</b>\n\n<blockquote>❓ <b>Что:</b> {what}\n📍 <b>Где:</b> {where_field}\n🕐 <b>Когда:</b> {when_field}</blockquote>"
+        reward_str = f"\n🪙 <b>Награда:</b> {reward} баурсаков" if reward > 0 else ""
+        channel_text = f"🤝 <b>{section_name}</b>\n\n<blockquote>❓ <b>Что:</b> {what}\n📍 <b>Где:</b> {where_field}\n🕐 <b>Когда:</b> {when_field}{reward_str}</blockquote>"
         bot_info = await bot.get_me()
 
         chan_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -780,11 +920,16 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
 
     elif action == "no":
         req_data = get_request_by_id(req_id)
+        if req_data:
+            # Возвращаем баурсаки на баланс автора, если они были списаны при создании
+            if req_data["reward"] > 0:
+                update_balance(req_data["user_id"], req_data["reward"])
+
         update_request_status(req_id, "rejected", None)
         try:
             await callback.message.delete()
             if req_data:
-                await bot.send_message(req_data[0], f"❌ К сожалению, твоя заявка #{req_id} отклонена.")
+                await bot.send_message(req_data["user_id"], f"❌ К сожалению, твоя заявка #{req_id} отклонена. Выделенные баурсаки возвращены на баланс.")
         except Exception:
             pass
 
@@ -851,4 +996,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())
