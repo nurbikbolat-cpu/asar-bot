@@ -109,13 +109,25 @@ class ModerationMiddleware(BaseMiddleware):
             except Exception as e:
                 logging.error(f"Ошибка проверки фото: {e}")
 
-        # 3. Фильтр ссылок / спама (мат разрешен и не проверяется)
+        # 3. Усиленный фильтр ссылок / спама / казино
         if event.text:
             text_lower = event.text.lower()
-            if any(trigger in text_lower for trigger in ["http://", "https://", "www."]) and "t.me/asar" not in text_lower:
+            
+            # Стоп-слова для выявления спама и мошенничества без ссылок
+            spam_triggers = [
+                "казино", "casino", "заработок", "инвестиции", "инвестировать", 
+                "крипта", "бинарн", "ставки", "бонус за регистрацию", "легкие деньги",
+                "пассивный доход", "арбитраж трафика", "вывод средств", "капер", "сигналы"
+            ]
+            
+            has_link = any(trigger in text_lower for trigger in ["http://", "https://", "www.", "t.me/", "tg://"])
+            is_allowed_link = "t.me/asar" in text_lower or "t.me/asar_help" in text_lower
+            has_spam_word = any(word in text_lower for word in spam_triggers)
+
+            if (has_link and not is_allowed_link) or has_spam_word:
                 try:
                     await event.delete()
-                    warning = await event.answer(f"🚫 {event.from_user.first_name}, ссылки и сторонние рекламы в чате запрещены!")
+                    warning = await event.answer(f"🚫 {event.from_user.first_name}, реклама, ссылки и спам-рассылки в чате строго запрещены!")
                     await asyncio.sleep(5)
                     await warning.delete()
                 except Exception:
@@ -431,9 +443,18 @@ async def process_karma_comment(message: Message, state: FSMContext):
 @router.message(F.text == "🏢 Весь Штаб (Каналы)", F.chat.type == "private")
 async def btn_channels(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏢 Перейти в Штаб / Каналы", url="https://t.me/asar_help")]
+        [InlineKeyboardButton(text="🤝 Живая опора", url="https://t.me/asar_help")],
+        [InlineKeyboardButton(text="📦 Общаг / Базар", url="https://t.me/asar_bazar")],
+        [InlineKeyboardButton(text="🛠 Общий Гараж", url="https://t.me/asar_garage")],
+        [InlineKeyboardButton(text="♻️ Остатки", url="https://t.me/asar_ostatki")],
+        [InlineKeyboardButton(text="📢 Главный Штаб", url="https://t.me/asar_hq")]
     ])
-    await message.answer("🏢 <b>Штаб Asar</b> — жми кнопку ниже:", reply_markup=kb, parse_mode="HTML")
+    await message.answer(
+        "🏢 <b>Штаб Asar — Выбери нужный канал:</b>\n\n"
+        "Нажимай на кнопки ниже, чтобы перейти в конкретный раздел экосистемы:", 
+        reply_markup=kb, 
+        parse_mode="HTML"
+    )
 
 
 @router.message(F.text == "📜 О проекте / Правила", F.chat.type == "private")
@@ -750,7 +771,6 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             pass
 
         update_request_status(req_id, "published", sent_post_id)
-        # Автоначисление баурсаков убрано. Балансом управляет только админ через /give и /take.
 
         try:
             await callback.message.delete()
@@ -814,7 +834,6 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # Подключаем middleware модерации (антиспам + ссылки + проверка картинок 18+, мат разрешен)
     dp.message.middleware(ModerationMiddleware(limit_seconds=1.5))
 
     dp.include_router(router)
