@@ -64,7 +64,7 @@ class ModerationMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         if not isinstance(event, Message) or not event.from_user:
             return await handler(event, data)
-        
+
         user_id = event.from_user.id
         chat = event.chat
 
@@ -98,7 +98,7 @@ class ModerationMiddleware(BaseMiddleware):
             try:
                 file = await event.bot.get_file(event.photo[-1].file_id)
                 file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
-                
+
                 is_nsfw = await check_image_nsfw(file_url)
                 if is_nsfw:
                     await event.delete()
@@ -474,8 +474,15 @@ async def btn_profile(message: Message):
     inline_buttons = []
 
     for req_id, section_name, status, post_id, sec_key in user_requests:
+        chan_username = CHANNELS.get(sec_key, "@asar_hq").replace("@", "")
+
         if status == "published":
-            inline_buttons.append([InlineKeyboardButton(text=f"✅ #{req_id} ({section_name}) [Закрыть]", callback_data=f"close_req_{req_id}")])
+            if post_id:
+                inline_buttons.append([InlineKeyboardButton(text=f"👁 #{req_id} ({section_name}) [Смотреть в канале]", url=f"https://t.me/{chan_username}/{post_id}")])
+            else:
+                inline_buttons.append([InlineKeyboardButton(text=f"✅ #{req_id} ({section_name}) [Опубликовано]", callback_data=f"my_req_{req_id}")])
+
+            inline_buttons.append([InlineKeyboardButton(text=f"🔒 Закрыть заявку #{req_id}", callback_data=f"close_req_{req_id}")])
             if "Гараж" in section_name:
                 inline_buttons.append([InlineKeyboardButton(text=f"📸 Фотофиксация железа #{req_id}", callback_data=f"tool_photo_{req_id}")])
         elif status in ("pending", "moderation"):
@@ -743,11 +750,11 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             pass
 
         update_request_status(req_id, "published", sent_post_id)
-        update_balance(user_id, 1)
+        # Автоначисление баурсаков убрано. Балансом управляет только админ через /give и /take.
 
         try:
             await callback.message.delete()
-            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена! Начислено 🪙 <b>+1 баурсак</b>. 🐾 *Барсик доволен!*", parse_mode="HTML")
+            await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале! 🐾 *Барсик доволен!*", parse_mode="HTML")
         except Exception:
             pass
 
@@ -803,10 +810,10 @@ async def handle_ping(request):
 async def main():
     logging.basicConfig(level=logging.INFO)
     init_db()
-    
+
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
-    
+
     # Подключаем middleware модерации (антиспам + ссылки + проверка картинок 18+, мат разрешен)
     dp.message.middleware(ModerationMiddleware(limit_seconds=1.5))
 
@@ -820,7 +827,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000)))
     await site.start()
 
-    print("🚀 Бот АСАР успешно запущен (антиспам, защита от 18+ фото, мат разрешен)!")
+    print("🚀 Бот АСАР успешно запущен!")
     await dp.start_polling(bot)
 
 
