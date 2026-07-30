@@ -110,7 +110,8 @@ class ModerationMiddleware(BaseMiddleware):
             spam_triggers = [
                 "казино", "casino", "заработок", "инвестиции", "инвестировать", 
                 "крипта", "бинарн", "ставки", "бонус за регистрацию", "легкие деньги",
-                "пассивный доход", "арбитраж трафика", "вывод средств", "капер", "сигналы"
+                "пассивный доход", "арбитраж трафика", "вывод средств", "капер", "сигналы",
+                "free spin", "slots", "http://"
             ]
 
             has_link = any(trigger in text_lower for trigger in ["http://", "https://", "www.", "t.me/", "tg://"])
@@ -571,9 +572,9 @@ async def btn_profile(message: Message):
 
             if responder_id:
                 inline_buttons.append([InlineKeyboardButton(text=f"🤝 Подтвердить сделку #{req_id}", callback_data=f"deal_confirm_{req_id}")])
-            
+
             inline_buttons.append([InlineKeyboardButton(text=f"🔒 Закрыть заявку #{req_id}", callback_data=f"close_req_{req_id}")])
-            
+
             if "Гараж" in section_name:
                 inline_buttons.append([InlineKeyboardButton(text=f"📸 Фотофиксация железа #{req_id}", callback_data=f"tool_photo_{req_id}")])
         elif status in ("pending", "moderation"):
@@ -718,7 +719,10 @@ async def step_what(message: Message, state: FSMContext):
 
 @router.message(Form.waiting_where, F.location, F.chat.type == "private")
 async def step_where_location(message: Message, state: FSMContext):
-    await state.update_data(where=f"📍 Геолокация: [{message.location.latitude}, {message.location.longitude}]")
+    lat = message.location.latitude
+    lon = message.location.longitude
+    geo_url = f"https://maps.google.com/?q={lat},{lon}"
+    await state.update_data(where=f"📍 <a href='{geo_url}'>Геолокация: [{lat}, {lon}]</a>")
     data = await state.get_data()
     await state.set_state(Form.waiting_when)
     await message.answer(SECTION_QUESTIONS[data["section_key"]][2], reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
@@ -771,7 +775,7 @@ async def step_reward(message: Message, state: FSMContext):
     if not message.text or message.text.startswith("/"):
         await message.answer("⚠️ Введи число баурсаков цифрой.", reply_markup=back_btn())
         return
-    
+
     try:
         reward = int(message.text.strip())
         if reward < 0:
@@ -988,7 +992,7 @@ async def handle_admin_panel(request):
         reward_txt = f"🪙 {r['reward']}" if r['reward'] > 0 else "—"
         html_content += f"""
                     <tr>
-                        #{r['id']}
+                        <td>#{r['id']}</td>
                         <td>{r['full_name'] or 'Неизвестно'} (<code>{r['user_id']}</code>)</td>
                         <td>{r['section']}</td>
                         <td>{r['what']}</td>
