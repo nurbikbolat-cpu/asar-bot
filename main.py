@@ -23,7 +23,7 @@ from database import (
     init_db, save_user, add_request, update_request_status,
     get_user_profile, has_accepted, set_accepted, update_balance,
     get_user_requests_detailed, update_user_full_profile, get_user_profile_by_id,
-    get_request_by_id, add_review, get_user_balance
+    get_request_by_id, add_review, get_user_balance, get_connection
 )
 
 ADMIN_ID = 1310962889
@@ -275,7 +275,7 @@ ABOUT_PROJECT_TEXT = (
 )
 
 
-# ─── Старт и Deep Linking (Отклик, Профиль, Подтверждение сделки) ──────────────
+# ─── Старт и Deep Linking ──────────────────────────────────────────────────────
 
 @router.message(Command("barsik"), F.chat.type == "private")
 async def cmd_barsik_easter_egg(message: Message):
@@ -294,7 +294,6 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
     save_user(user_id, message.from_user.username, message.from_user.full_name)
 
-    # 1. Обработка отклика на заявку
     if len(args) > 1 and args[1].startswith("respond_"):
         try:
             req_id = int(args[1].replace("respond_", ""))
@@ -314,7 +313,6 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
                     resp_name = responder.full_name
                     resp_handle = f"@{responder.username}" if responder.username else f"ID: {responder.id}"
 
-                    # Фиксируем откликнувшегося в базе
                     update_request_status(req_id, "published", responder_id=user_id)
 
                     contact_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -344,7 +342,6 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
             pass
         return
 
-    # 2. Просмотр чужого профиля
     if len(args) > 1 and args[1].startswith("profile_"):
         try:
             target_user_id = int(args[1].replace("profile_", ""))
@@ -409,7 +406,7 @@ async def process_legal_acceptance(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ─── Двухстороннее подтверждение сделки и перевод баурсаков ────────────────────
+# ─── Двухстороннее подтверждение сделки ────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("deal_confirm_"))
 async def callback_confirm_deal(callback: CallbackQuery, bot: Bot):
@@ -427,7 +424,6 @@ async def callback_confirm_deal(callback: CallbackQuery, bot: Bot):
         await callback.answer("⚠️ На эту заявку еще никто не откликался через бота!", show_alert=True)
         return
 
-    # Перевод баурсаков от автора к помощнику (если они были выделены)
     if reward > 0:
         update_balance(responder_id, reward)
 
@@ -446,7 +442,6 @@ async def callback_confirm_deal(callback: CallbackQuery, bot: Bot):
         parse_mode="HTML"
     )
 
-    # Уведомляем помощника и предлагаем оставить карму
     try:
         helper_kb = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -646,9 +641,7 @@ async def callback_close_request(callback: CallbackQuery, bot: Bot):
         await callback.answer("⚠️ Ошибка доступа!", show_alert=True)
         return
 
-    owner_id = req_data["user_id"]
     section_name = req_data["section"]
-    status = req_data["status"]
     post_id = req_data["post_id"]
 
     reverse_map = {"Живая опора": "chan_help", "Общаг/Базар": "chan_bazar", "Общий Гараж": "chan_garage", "Остатки": "chan_ostatki"}
@@ -702,7 +695,7 @@ async def profile_get_bio(message: Message, state: FSMContext):
     await message.answer("✅ <b>Профиль успешно обновлен!</b>", reply_markup=main_reply_menu(), parse_mode="HTML")
 
 
-# ─── Подача заявок с выбором баурсаков ─────────────────────────────────────────
+# ─── Подача заявок (Стартовый баланс: 3 баурсака) ───────────────────────────────
 
 @router.message(F.text.in_(["🤝 Живая опора", "📦 Общаг/Базар", "🛠 Общий Гараж", "♻️ Остатки"]), F.chat.type == "private")
 async def section_text_selected(message: Message, state: FSMContext):
@@ -759,7 +752,7 @@ async def step_when(message: Message, state: FSMContext):
         f"🪙 <b>Экономика баурсаков</b>\n\n"
         f"Сколько баурсаков ты хочешь добровольно выделить в качестве вознаграждения за помощь?\n"
         f"Твой текущий баланс: <code>{user_balance} баурсаков</code>\n\n"
-        f"<i>Отправь число цифрой (например: <code>5</code> или <code>10</code>) или нажми кнопку ниже:</i>",
+        f"<i>Отправь число цифрой (например: <code>1</code> или <code>2</code>) или нажми кнопку ниже:</i>",
         reply_markup=skip_reward_btn(),
         parse_mode="HTML"
     )
@@ -798,7 +791,6 @@ async def step_reward(message: Message, state: FSMContext):
         )
         return
 
-    # Замораживаем / списываем баурсаки с баланса создателя при публикации заявки
     update_balance(user_id, -reward)
     await state.update_data(reward=reward)
     await state.set_state(Form.waiting_photo)
@@ -885,7 +877,6 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
         when_field = req_data["when_field"]
         reward = req_data["reward"]
         photo_id = req_data["photo_id"]
-        status = req_data["status"]
 
         chan_username = CHANNELS.get(section_key, "@asar_hq")
 
@@ -921,7 +912,6 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
     elif action == "no":
         req_data = get_request_by_id(req_id)
         if req_data:
-            # Возвращаем баурсаки на баланс автора, если они были списаны при создании
             if req_data["reward"] > 0:
                 update_balance(req_data["user_id"], req_data["reward"])
 
@@ -934,42 +924,157 @@ async def moderate_action(callback: CallbackQuery, bot: Bot):
             pass
 
 
-# ─── Админские команды ─────────────────────────────────────────────────────────
-
-@router.message(Command("give"), F.from_user.id == ADMIN_ID)
-async def admin_give_currency(message: Message):
-    parts = message.text.split()
-    if len(parts) != 3:
-        await message.answer("⚠️ Формат: <code>/give [user_id] [сумма]</code>", parse_mode="HTML")
-        return
-    update_balance(int(parts[1]), int(parts[2]))
-    await message.answer(f"✅ Начислено {parts[2]} баурсаков пользователю <code>{parts[1]}</code>!", parse_mode="HTML")
-
-
-@router.message(Command("take"), F.from_user.id == ADMIN_ID)
-async def admin_take_currency(message: Message):
-    parts = message.text.split()
-    if len(parts) != 3:
-        await message.answer("⚠️ Формат: <code>/take [user_id] [сумма]</code>", parse_mode="HTML")
-        return
-    update_balance(int(parts[1]), -int(parts[2]))
-    await message.answer(f"✅ Списано {parts[2]} баурсаков у пользователя <code>{parts[1]}</code>!", parse_mode="HTML")
-
-
-@router.callback_query(F.data == "menu_main")
-async def back_to_main(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.answer("🟢 <b>Главное меню АСАР:</b>", reply_markup=main_reply_menu(), parse_mode="HTML")
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-
-
-# ─── Запуск сервера ────────────────────────────────────────────────────────────
+# ─── Веб-панель администратора (HTML Dashboard) ────────────────────────────────
 
 async def handle_ping(request):
     return web.Response(text="Bot is alive!")
+
+
+async def handle_admin_panel(request):
+    """Веб-интерфейс администратора для управления заявками."""
+    with get_connection() as conn:
+        requests = conn.execute("""
+            SELECT r.id, r.user_id, u.full_name, r.section, r.what, r.reward, r.status 
+            FROM requests r 
+            LEFT JOIN users u ON r.user_id = u.user_id 
+            ORDER BY r.id DESC
+        """).fetchall()
+
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Asar — Админ-панель</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
+            .container { max-width: 1100px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+            h1 { color: #2c3e50; margin-top: 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eaeaea; }
+            th { background: #f8f9fa; font-weight: 600; color: #555; }
+            .badge { padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+            .status-moderation { background: #fff3cd; color: #856404; }
+            .status-published { background: #d4edda; color: #155724; }
+            .status-closed { background: #e2e3e5; color: #383d41; }
+            .status-rejected { background: #f8d7da; color: #721c24; }
+            .btn { text-decoration: none; padding: 6px 12px; border-radius: 5px; font-size: 13px; font-weight: 500; display: inline-block; margin-right: 5px; }
+            .btn-success { background: #28a745; color: white; }
+            .btn-danger { background: #dc3545; color: white; }
+            .btn:hover { opacity: 0.85; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🛡 Панель управления Asar</h1>
+            <p>Управление заявками экосистемы в реальном времени.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Автор</th>
+                        <th>Раздел</th>
+                        <th>Суть</th>
+                        <th>Награда</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+    """
+
+    for r in requests:
+        status_class = f"status-{r['status']}" if r['status'] in ['moderation', 'published', 'closed', 'rejected'] else ""
+        reward_txt = f"🪙 {r['reward']}" if r['reward'] > 0 else "—"
+        html_content += f"""
+                    <tr>
+                        #{r['id']}
+                        <td>{r['full_name'] or 'Неизвестно'} (<code>{r['user_id']}</code>)</td>
+                        <td>{r['section']}</td>
+                        <td>{r['what']}</td>
+                        <td>{reward_txt}</td>
+                        <td><span class="badge {status_class}">{r['status']}</span></td>
+                        <td>
+                            <a href="/admin/action?id={r['id']}&act=approve" class="btn btn-success">Одобрить</a>
+                            <a href="/admin/action?id={r['id']}&act=reject" class="btn btn-danger">Отклонить</a>
+                        </td>
+                    </tr>
+        """
+
+    html_content += """
+                </tbody>
+            </table>
+        </div>
+    </body>
+    </html>
+    """
+    return web.Response(text=html_content, content_type='text/html')
+
+
+async def handle_admin_action(request):
+    """Обработка кнопок одобрения/отклонения прямо из веб-панели."""
+    req_id = request.query.get('id')
+    act = request.query.get('act')
+
+    if req_id and act:
+        req_id = int(req_id)
+        req_data = get_request_by_id(req_id)
+        bot: Bot = request.app['bot']
+
+        if req_data:
+            if act == 'approve':
+                user_id = req_data["user_id"]
+                section_name = req_data["section"]
+                what = req_data["what"]
+                where_field = req_data["where_field"]
+                when_field = req_data["when_field"]
+                reward = req_data["reward"]
+                photo_id = req_data["photo_id"]
+
+                reverse_map = {"Живая опора": "chan_help", "Общаг/Базар": "chan_bazar", "Общий Гараж": "chan_garage", "Остатки": "chan_ostatki"}
+                clean_sec = section_name
+                for prefix in ["🤝 ", "📦 ", "🛠 ", "♻️ "]:
+                    clean_sec = clean_sec.replace(prefix, "")
+                section_key = reverse_map.get(clean_sec, "chan_help")
+                chan_username = CHANNELS.get(section_key, "@asar_hq")
+
+                reward_str = f"\n🪙 <b>Награда:</b> {reward} баурсаков" if reward > 0 else ""
+                channel_text = f"🤝 <b>{section_name}</b>\n\n<blockquote>❓ <b>Что:</b> {what}\n📍 <b>Где:</b> {where_field}\n🕐 <b>Когда:</b> {when_field}{reward_str}</blockquote>"
+                bot_info = await bot.get_me()
+
+                chan_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="👤 Профиль", url=f"https://t.me/{bot_info.username}?start=profile_{user_id}"),
+                        InlineKeyboardButton(text="💬 Откликнуться", url=f"https://t.me/{bot_info.username}?start=respond_{req_id}")
+                    ]
+                ])
+
+                sent_post_id = None
+                try:
+                    if photo_id:
+                        msg = await bot.send_photo(chat_id=chan_username, photo=photo_id, caption=channel_text, reply_markup=chan_kb, parse_mode="HTML")
+                    else:
+                        msg = await bot.send_message(chat_id=chan_username, text=channel_text, reply_markup=chan_kb, parse_mode="HTML")
+                    sent_post_id = msg.message_id
+                except Exception:
+                    pass
+
+                update_request_status(req_id, "published", sent_post_id)
+                try:
+                    await bot.send_message(user_id, f"🎉 Ваша заявка #{req_id} одобрена и опубликована в канале! 🐾 *Барсик доволен!*", parse_mode="HTML")
+                except Exception:
+                    pass
+
+            elif act == 'reject':
+                if req_data["reward"] > 0:
+                    update_balance(req_data["user_id"], req_data["reward"])
+                update_request_status(req_id, "rejected", None)
+                try:
+                    await bot.send_message(req_data["user_id"], f"❌ К сожалению, твоя заявка #{req_id} отклонена администратором.")
+                except Exception:
+                    pass
+
+    raise web.HTTPFound('/admin')
 
 
 async def main():
@@ -980,18 +1085,21 @@ async def main():
     dp = Dispatcher()
 
     dp.message.middleware(ModerationMiddleware(limit_seconds=1.5))
-
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
 
     app = web.Application()
+    app['bot'] = bot
     app.router.add_get('/', handle_ping)
+    app.router.add_get('/admin', handle_admin_panel)
+    app.router.add_get('/admin/action', handle_admin_action)
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000)))
     await site.start()
 
-    print("🚀 Бот АСАР успешно запущен!")
+    print("🚀 Бот АСАР и Веб-панель администратора успешно запущены!")
     await dp.start_polling(bot)
 
 
