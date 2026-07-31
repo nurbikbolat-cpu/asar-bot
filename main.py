@@ -262,7 +262,28 @@ DISCLAIMER_TEXT = (
 )
 
 
-# ─── Старт и Deep Linking ────────────────────────────────________________──────
+# ─── Обработка возврата в главное меню через Inline-кнопку ─────────────────────
+
+@router.callback_query(F.data == "menu_main")
+async def callback_back_to_main_menu(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer()
+    try:
+        await callback.message.edit_text(
+            "🟢 <b>АСАР — Это когда мы вместе</b>\n\n"
+            "Выберите нужный раздел на панели снизу:",
+            reply_markup=None,
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    await callback.message.answer(
+        "Главное меню:",
+        reply_markup=main_reply_menu()
+    )
+
+
+# ─── Старт и Deep Linking ──────────────────────────────────────────────────────
 
 @router.message(Command("barsik"), F.chat.type == "private")
 async def cmd_barsik_easter_egg(message: Message):
@@ -304,7 +325,8 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
 
                     contact_kb = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="💬 Написать участнику", url=f"t.me/{responder.username}" if responder.username else f"tg://user?id={responder.id}")],
-                        [InlineKeyboardButton(text="🤝 Подтвердить сделку и перевести баурсаки", callback_data=f"deal_confirm_{req_id}")]
+                        [InlineKeyboardButton(text="🤝 Подтвердить сделку и перевести баурсаки", callback_data=f"deal_confirm_{req_id}")],
+                        [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
                     ])
                     try:
                         await bot.send_message(
@@ -350,14 +372,15 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
                     f"⭐ <b>Карма / Отзывы:</b> <code>{karma_str}</code>"
                 )
 
-                card_kb = None
+                card_kb_list = []
                 if target_user_id != user_id:
-                    card_kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [
-                            InlineKeyboardButton(text="👍 Плюс в карму", callback_data=f"karma_up_{target_user_id}"),
-                            InlineKeyboardButton(text="👎 Минус в карму", callback_data=f"karma_down_{target_user_id}")
-                        ]
+                    card_kb_list.append([
+                        InlineKeyboardButton(text="👍 Плюс в карму", callback_data=f"karma_up_{target_user_id}"),
+                        InlineKeyboardButton(text="👎 Минус в карму", callback_data=f"karma_down_{target_user_id}")
                     ])
+                card_kb_list.append([InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")])
+                card_kb = InlineKeyboardMarkup(inline_keyboard=card_kb_list)
+
                 await message.answer(card_text, parse_mode="HTML", reply_markup=card_kb)
         except ValueError:
             pass
@@ -434,7 +457,8 @@ async def callback_confirm_deal(callback: CallbackQuery, bot: Bot):
             [
                 InlineKeyboardButton(text="👍 Плюс автору в карму", callback_data=f"karma_up_{callback.from_user.id}"),
                 InlineKeyboardButton(text="👎 Минус в карму", callback_data=f"karma_down_{callback.from_user.id}")
-            ]
+            ],
+            [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
         ])
         await bot.send_message(
             responder_id,
@@ -465,16 +489,23 @@ async def process_karma_button(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ReviewForm.waiting_comment)
 
     await callback.answer()
-    await callback.message.answer(
-        "✍️ Напиши короткий комментарий или пояснение к оценке:",
-        reply_markup=back_btn()
-    )
+    try:
+        await callback.message.edit_text(
+            "✍️ Напиши короткий комментарий или пояснение к оценке:",
+            reply_markup=back_btn(),
+            parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            "✍️ Напиши короткий комментарий или пояснение к оценке:",
+            reply_markup=back_btn()
+        )
 
 
 @router.message(ReviewForm.waiting_comment, F.chat.type == "private")
 async def process_karma_comment(message: Message, state: FSMContext):
     if not message.text:
-        await message.answer("⚠️ Пожалуйста, отправь комментарий текстом.")
+        await message.answer("⚠️ Пожалуйста, отправь комментарий текстом.", reply_markup=back_btn())
         return
 
     data = await state.get_data()
@@ -500,7 +531,8 @@ async def btn_channels(message: Message):
         [InlineKeyboardButton(text="📦 Общаг / Базар", url="https://t.me/asar_bazar")],
         [InlineKeyboardButton(text="🛠 Общий Гараж", url="https://t.me/asar_garage")],
         [InlineKeyboardButton(text="♻️ Остатки", url="https://t.me/asar_ostatki")],
-        [InlineKeyboardButton(text="📢 Главный Штаб", url="https://t.me/asar_hq")]
+        [InlineKeyboardButton(text="📢 Главный Штаб", url="https://t.me/asar_hq")],
+        [InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")]
     ])
     await message.answer(
         "🏢 <b>Штаб Asar — Выбери нужный канал:</b>\n\n"
@@ -532,6 +564,9 @@ async def btn_rules(message: Message):
             [
                 InlineKeyboardButton(text="🛡️ Правила безопасности", callback_data="safety_rules")
             ],
+            [
+                InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")
+            ]
         ]
     )
     await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
@@ -588,7 +623,49 @@ async def send_block_info(callback: CallbackQuery):
             "3. <b>Личная безопасность:</b> Каждый участник самостоятельно оценивает риски и соблюдает технику безопасности."
         )
 
-    await callback.message.answer(content, parse_mode="HTML")
+    block_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад к блокам", callback_data="back_to_blocks")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu_main")]
+    ])
+
+    try:
+        await callback.message.edit_text(content, parse_mode="HTML", reply_markup=block_kb)
+    except Exception:
+        await callback.message.answer(content, parse_mode="HTML", reply_markup=block_kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_blocks")
+async def callback_back_to_blocks(callback: CallbackQuery):
+    text = (
+        "🟢 <b>Экосистема Asar — Концепция проекта и Правила</b>\n\n"
+        "Выберите интересующий вас блок или правила безопасности ниже:"
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🧱 Блок 1. Закупки", callback_data="block_1"),
+                InlineKeyboardButton(text="🔍 Блок 2. Прозрачность", callback_data="block_2"),
+            ],
+            [
+                InlineKeyboardButton(text="🤝 Блок 3. Конвейер", callback_data="block_3"),
+                InlineKeyboardButton(text="🤹 Блок 4. Бартер", callback_data="block_4"),
+            ],
+            [
+                InlineKeyboardButton(text="♻️ Блок 5. Утилизация", callback_data="block_5")
+            ],
+            [
+                InlineKeyboardButton(text="🛡️ Правила безопасности", callback_data="safety_rules")
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")
+            ]
+        ]
+    )
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
     await callback.answer()
 
 
@@ -648,6 +725,7 @@ async def btn_profile(message: Message):
             inline_buttons.append([InlineKeyboardButton(text=f"❌ #{req_id} ({section_name}) [Отклонено]", callback_data=f"my_req_{req_id}")])
 
     inline_buttons.append([InlineKeyboardButton(text="✏️ Настроить профиль (Кто я)", callback_data="edit_profile")])
+    inline_buttons.append([InlineKeyboardButton(text="⬅️ Отмена / Главное меню", callback_data="menu_main")])
     await message.answer(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_buttons))
 
 
@@ -664,12 +742,20 @@ async def callback_tool_photo_start(callback: CallbackQuery, state: FSMContext):
     await state.update_data(current_tool_req_id=req_id)
     await state.set_state(GarageToolForm.waiting_photo_before)
     await callback.answer()
-    await callback.message.answer(
-        "📸 <b>Фотофиксация инструмента (Шаг 1 из 2)</b>\n\n"
-        "Отправь фото текущего состояния железа *(«До» выдачи)*:",
-        reply_markup=back_btn(),
-        parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            "📸 <b>Фотофиксация инструмента (Шаг 1 из 2)</b>\n\n"
+            "Отправь фото текущего состояния железа *(«До» выдачи)*:",
+            reply_markup=back_btn(),
+            parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            "📸 <b>Фотофиксация инструмента (Шаг 1 из 2)</b>\n\n"
+            "Отправь фото текущего состояния железа *(«До» выдачи)*:",
+            reply_markup=back_btn(),
+            parse_mode="HTML"
+        )
 
 
 @router.message(GarageToolForm.waiting_photo_before, F.photo, F.chat.type == "private")
@@ -735,7 +821,18 @@ async def callback_close_request(callback: CallbackQuery, bot: Bot):
 async def edit_profile_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(ProfileForm.waiting_role)
-    await callback.message.answer("🏷 <b>Какая твоя роль или профессия?</b> (например: <i>Электрик, Строитель</i>):", reply_markup=back_btn(), parse_mode="HTML")
+    try:
+        await callback.message.edit_text(
+            "🏷 <b>Какая твоя роль или профессия?</b> (например: <i>Электрик, Строитель</i>):",
+            reply_markup=back_btn(),
+            parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            "🏷 <b>Какая твоя роль или профессия?</b> (например: <i>Электрик, Строитель</i>):",
+            reply_markup=back_btn(),
+            parse_mode="HTML"
+        )
 
 
 @router.message(ProfileForm.waiting_role, F.chat.type == "private")
@@ -830,7 +927,18 @@ async def callback_reward_zero(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(reward=0)
     await state.set_state(Form.waiting_photo)
-    await callback.message.answer("📸 <b>Закинь фото</b> (по желанию) или жми кнопку ниже:", reply_markup=skip_photo_btn(), parse_mode="HTML")
+    try:
+        await callback.message.edit_text(
+            "📸 <b>Закинь фото</b> (по желанию) или жми кнопку ниже:",
+            reply_markup=skip_photo_btn(),
+            parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            "📸 <b>Закинь фото</b> (по желанию) или жми кнопку ниже:",
+            reply_markup=skip_photo_btn(),
+            parse_mode="HTML"
+        )
 
 
 @router.message(Form.waiting_reward, F.chat.type == "private")
@@ -879,6 +987,10 @@ async def step_photo_invalid(message: Message):
 async def skip_photo(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer()
     await state.update_data(photo_id=None)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await finish_request(callback.message, state, bot, user=callback.from_user)
 
 
